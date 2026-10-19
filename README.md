@@ -33,7 +33,7 @@ Allow inbound TCP on the port in the host firewall: the speaker downloads each t
 - Queue you can reorder by dragging the handle (or with the Next / up buttons), remove songs, and see who added each one
 - Autoplay: when the queue runs dry, a random song from the last song's YouTube Music radio is queued (toggle in the UI)
 - Play/pause, skip, volume (hold the +/- buttons to repeat), live elapsed time
-- Error log at the bottom of the page (download, search and speaker failures, with timestamps)
+- Error log at the bottom of the page (download, search and speaker failures, with timestamps) and a Clear log button
 - Only the host (localhost) can scan for or take over a speaker; guests cannot
 
 ## Limits
@@ -45,6 +45,19 @@ Allow inbound TCP on the port in the host firewall: the speaker downloads each t
 - Downloading from YouTube may violate its terms of service; use it for music you're entitled to play, at your own risk.
 - Live streams are rejected (they never finish downloading).
 - The queue, chosen speaker and autoplay setting are saved to `state.json` and `cache/` and restored on restart; the song that was playing starts again from the beginning.
+
+## Docs
+
+- [How it works](docs/architecture.md): playback pipeline, autoplay, persistence, who can do what
+- [HTTP API](docs/api.md): every endpoint and field
+- [Troubleshooting](docs/troubleshooting.md): speaker not found, downloads failing, firewall
+
+## Configuration
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` | `8000` | Port the web server listens on |
+| `SONOS_IP` | none | Use this speaker at startup instead of scanning in the UI |
 
 ## Layout
 

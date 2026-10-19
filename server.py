@@ -331,6 +331,12 @@ def set_autoplay():
     return "", 204
 
 
+@app.post("/api/log/clear")
+def clear_log():
+    errors.clear()
+    return "", 204
+
+
 @app.post("/api/remove/<id>")
 def remove(id):
     with lock:
