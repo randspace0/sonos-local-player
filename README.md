@@ -32,6 +32,7 @@ Allow inbound TCP on the port in the host firewall: the speaker downloads each t
 - Paste a YouTube link, or a Spotify **track** link (matched to the same song on YouTube; Spotify itself is DRM-protected)
 - Queue you can reorder by dragging the handle (or with the Next / up buttons), remove songs, and see who added each one
 - Autoplay: when the queue runs dry, a random song from the last song's YouTube Music radio is queued (toggle in the UI)
+- Lyrics for the current song from [LRCLIB](https://lrclib.net), highlighted line by line when they are time-synced
 - Play/pause, skip, volume (hold the +/- buttons to repeat), live elapsed time
 - Error log at the bottom of the page (download, search and speaker failures, with timestamps) and a Clear log button
 - Only the host (localhost) can scan for or take over a speaker; guests cannot
@@ -41,6 +42,7 @@ Allow inbound TCP on the port in the host firewall: the speaker downloads each t
 - No authentication: anyone on your Wi-Fi can queue, skip and change volume. Don't expose the port to the internet.
 - Only YouTube and Spotify links are accepted (so guests can't make the host fetch arbitrary URLs).
 - Search uses YouTube Music's private web API and can break when YouTube changes it.
+- Lyrics depend on LRCLIB having the song; matching is by artist, title and length, so rare songs and some remixes won't have any.
 - Spotify playlists and albums are not supported.
 - Downloading from YouTube may violate its terms of service; use it for music you're entitled to play, at your own risk.
 - Live streams are rejected (they never finish downloading).

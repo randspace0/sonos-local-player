@@ -8,7 +8,8 @@ Pipeline: yt-dlp downloads the audio -> we serve the file over HTTP -> Sonos pul
 via soco.play_uri. The host manages the speaker at http://localhost:8000.
 """
 import html, json, os, random, re, socket, threading, time, urllib.request, uuid
-from collections import deque
+from collections import OrderedDict, deque
+from urllib.parse import urlencode
 from urllib.parse import urlparse
 import soco
 from flask import Flask, jsonify, request, send_from_directory
@@ -242,6 +243,84 @@ def player_loop():
 
 def secs(t):
     return sum(int(x) * 60 ** i for i, x in enumerate(reversed((t or "0").split(":")))) if t and t[0].isdigit() else 0
+
+
+# ---- lyrics (LRCLIB: free, no key, time-synced) ----
+LRC = re.compile(r"^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)$")
+lyrics_cache = OrderedDict()  # item id -> result, newest last
+
+
+def clean_title(t):
+    inner = re.search(r"[「『](.+?)[」』]", t)  # "YOASOBI「アイドル」 Official Video" -> アイドル
+    if inner:
+        return inner.group(1).strip()
+    t = re.sub(r"[\(\[（【].*?[\)\]）】]", "", t)  # (Official Video), [Remastered], ...
+    return re.sub(r"\s+-\s+(Topic|Official.*)$", "", t, flags=re.I).strip() or t
+
+
+def lrclib_search(**params):
+    req = urllib.request.Request("https://lrclib.net/api/search?" + urlencode(params),
+                                 headers={"User-Agent": "sonos-local-player (https://github.com/randspace0/sonos-local-player)"})
+    for attempt in (1, 2):  # LRCLIB sometimes answers 503; one retry is enough
+        try:
+            return json.load(urllib.request.urlopen(req, timeout=8))
+        except Exception:
+            if attempt == 2:
+                raise
+            time.sleep(1)
+
+
+def parse_synced(lrc):
+    out = []
+    for line in (lrc or "").splitlines():
+        m = LRC.match(line.strip())
+        if m:
+            out.append({"t": int(m.group(1)) * 60 + float(m.group(2)), "text": m.group(3)})
+    return out
+
+
+def find_lyrics(item):
+    artist = re.split(r",| and | & | x |、", item.get("artist") or "")[0].strip()
+    title, dur = clean_title(item["title"]), secs(item.get("dur"))
+    best = None  # (score, hit); lower is better
+    queries = [{"artist_name": artist, "track_name": title}] if artist else []
+    queries += [{"q": f"{artist} {title}".strip()}, {"q": title}]
+    for q in queries:
+        hits = lrclib_search(**q)  # raises if LRCLIB is unreachable: that is not the same as "no lyrics"
+        for h in hits:
+            synced = parse_synced(h.get("syncedLyrics"))
+            plain = h.get("plainLyrics") or ""
+            if h.get("instrumental"):
+                continue
+            if len(synced) < 4 and len(plain.splitlines()) < 4:
+                continue  # LRCLIB has junk entries ("probe"); a real song has more lines than this
+            gap = abs((h.get("duration") or 0) - dur) if dur else 0
+            if dur and gap > 8:
+                continue  # a different recording or a different song
+            score = gap + (0 if len(synced) >= 4 else 4)  # prefer a synced match over a slightly closer plain one
+            if best is None or score < best[0]:
+                best = (score, {"synced": synced if len(synced) >= 4 else None, "plain": plain or None})
+        if best and best[0] <= 2:
+            break  # good enough, don't query further
+    return best[1] if best else None
+
+
+@app.get("/api/lyrics")
+def lyrics():
+    id = request.args.get("id", "")
+    item = next((i for i in [current, *queue] if i and i["id"] == id), None)
+    if not item:
+        return "no such song", 404
+    if id not in lyrics_cache:
+        try:
+            found = find_lyrics(item)
+        except Exception as e:
+            log_err(f"lyrics lookup failed for '{item['title'][:40]}': {e}")
+            return "couldn't reach the lyrics service", 502  # not cached, so a retry can succeed
+        lyrics_cache[id] = found or {"synced": None, "plain": None}
+        while len(lyrics_cache) > 50:
+            lyrics_cache.popitem(last=False)
+    return jsonify(id=id, **lyrics_cache[id])
 
 
 def need_speaker():

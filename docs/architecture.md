@@ -24,6 +24,10 @@ The loop also refreshes a snapshot (playing, position, duration, volume). `GET /
 
 When the queue is empty and the speaker is idle, `autofill()` fetches the YouTube Music radio for the last played song (`watch?v=<id>&list=RD<id>`), drops anything in the last 40 played, picks one at random and queues it as "Autoplay". It only starts after at least one song has played, and the switch next to "Up next" turns it off.
 
+## Lyrics
+
+When the Lyrics panel is open, the page asks `GET /api/lyrics?id=<song id>`. The server cleans the title (`YOASOBI「アイドル」 Official Video` becomes `アイドル`, `(Official Video)` and `[Remastered]` are dropped), searches [LRCLIB](https://lrclib.net) by artist and title, and keeps the best hit whose length is within 8 seconds of the song. It prefers time-synced lyrics, ignores entries with fewer than 4 lines (LRCLIB has junk ones), and caches the answer per song. If LRCLIB can't be reached it returns `502` and does not cache, so Try again works. The page shows the current line in bold and scrolls it into view from the speaker's position; scrolling the box by hand pauses auto-scroll for 5 seconds. Lyrics text is only ever rendered with `textContent`.
+
 ## Spotify links
 
 Spotify audio is DRM-protected, so it can't be streamed. For a `open.spotify.com/.../track/...` link the server reads the page's `og:title` and `og:description` to get the artist and title, then downloads the best YouTube match for that text. It can pick a different version of the song.

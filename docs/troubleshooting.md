@@ -34,6 +34,14 @@ The **Error log** at the bottom of the page lists recent failures with timestamp
 
 The player treats "the speaker stopped" as "the song finished" and moves on. If the speaker can't play a file, that looks the same, so the queue can drain quickly. The Error log now says `speaker stopped '<song>' early (Ns of Ms)` or `file for '<song>' is missing` when this happens. Usual causes: the host firewall blocks the port (see Setup), the PC's IP changed since the speaker was chosen (take over the speaker again), or two servers were sharing one `cache/` folder (each port now has its own `data/<port>/`).
 
+## Lyrics
+
+| Symptom | Cause and fix |
+|---|---|
+| "No lyrics found for this song" | LRCLIB has no match within 8 seconds of the song's length. Covers, live versions and remixes often have none. |
+| "Couldn't reach the lyrics service" | LRCLIB is down or rate-limiting. Press Try again. |
+| Highlighted line is slightly early or late | The synced timing comes from LRCLIB for a recording that can differ by a second or two from the YouTube version. |
+
 ## Data
 
 - To start clean, stop the server, delete `data/<port>/` (e.g. `data/8000/`), and start again.
