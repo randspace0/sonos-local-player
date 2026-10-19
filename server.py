@@ -17,9 +17,8 @@ from yt_dlp import YoutubeDL
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("PORT", 8000))
 CACHE = os.path.join(ROOT, "cache")
+STATE = os.path.join(ROOT, "state.json")  # queue, speaker and autoplay survive restarts
 os.makedirs(CACHE, exist_ok=True)
-for f in os.listdir(CACHE):  # the queue lives in memory, so old downloads are orphans
-    os.remove(os.path.join(CACHE, f))
 
 VID = re.compile(r"^[\w-]{11}$")
 DUR = re.compile(r"^\d{1,3}(:\d{2}){1,2}$")
@@ -27,7 +26,7 @@ ALLOWED_HOSTS = ("youtube.com", "youtu.be", "open.spotify.com")  # yt-dlp would 
 
 speaker = None  # chosen by the host in the web UI (or SONOS_IP at startup)
 HOST = None     # our IP as seen by that speaker
-lock = threading.Lock()
+lock = threading.RLock()
 queue = []      # {id, title, status: loading|ready|error, vid, artist, dur, by, file}
 current = None
 started_at = 0.0
@@ -35,8 +34,57 @@ autoplay = True          # when the queue runs dry, queue a random song like the
 auto_pending = False
 last_vid = None          # last song that started playing: the seed for autoplay
 recent = deque(maxlen=40)  # recently played video ids, so autoplay doesn't repeat itself
+errors = deque(maxlen=50)  # newest first; shown in the log panel at the bottom of the page
 snap = {"playing": False, "position": None, "duration": None, "volume": 0}  # refreshed by player_loop
 app = Flask(__name__, static_folder=os.path.join(ROOT, "static"), static_url_path="/static")
+
+
+def log_err(msg):
+    print("error:", msg)
+    errors.appendleft({"t": time.time(), "msg": str(msg)[:200]})
+
+
+def save():
+    """Write the queue to disk after every change (atomic: temp file + rename)."""
+    try:
+        with lock:
+            data = {"queue": [i for i in queue if i["status"] in ("ready", "loading")], "current": current,
+                    "autoplay": autoplay, "speaker_ip": speaker.ip_address if speaker else None,
+                    "last_vid": last_vid, "recent": list(recent)}
+            with open(STATE + ".tmp", "w") as f:
+                json.dump(data, f)
+            os.replace(STATE + ".tmp", STATE)
+    except Exception as e:
+        log_err(f"could not save state.json: {e}")
+
+
+def restore():
+    """Reload the saved queue. The song that was playing goes back to the front; unfinished downloads restart."""
+    global autoplay, last_vid
+    try:
+        with open(STATE) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return
+    autoplay, last_vid = bool(d.get("autoplay", True)), d.get("last_vid")
+    recent.extend(d.get("recent") or [])
+    for it in [d.get("current"), *d.get("queue", [])]:
+        if not isinstance(it, dict):
+            continue
+        if it.get("status") == "ready" and it.get("file") and os.path.exists(os.path.join(CACHE, it["file"])):
+            queue.append(it)
+        elif it.get("status") == "loading" and it.get("q"):
+            queue.append(it)
+            threading.Thread(target=fetch, args=(it, it["q"]), daemon=True).start()
+    keep = {i["file"] for i in queue if i.get("file")}
+    for f in os.listdir(CACHE):  # downloads nothing refers to any more
+        if f not in keep:
+            os.remove(os.path.join(CACHE, f))
+    if d.get("speaker_ip"):
+        try:
+            use_speaker(d["speaker_ip"])
+        except Exception as e:
+            log_err(f"saved speaker {d['speaker_ip']} unreachable, pick one in the UI: {e}")
 
 
 def local_ip(target="192.0.2.1"):
@@ -55,6 +103,7 @@ def use_speaker(ip):
     sp.player_name  # fail fast if unreachable
     HOST = local_ip(ip)
     speaker = sp
+    save()
 
 
 def spotify_query(url):
@@ -70,26 +119,36 @@ def fetch(item, query):
         try:
             query = spotify_query(query)
         except Exception as e:
-            return item.update(status="error", title=f"spotify lookup failed: {str(e)[:60]}")
+            log_err(f"spotify lookup failed for {item['title'][:60]}: {e}")
+            return item.update(status="error", error="spotify lookup failed")
         item["title"] = query
     # AAC/m4a: the Sonos-friendly format (webm/opus is not supported)
     opts = {"format": "140/bestaudio[ext=m4a]", "outtmpl": f"{CACHE}/{item['id']}.%(ext)s",
-            "noplaylist": True, "quiet": True}
+            "noplaylist": True, "quiet": True,
+            "match_filter": lambda info, incomplete: "live" if info.get("is_live") else None}  # a live stream never finishes downloading
     if not query.startswith(("http://", "https://")):
         query = f"ytsearch1:{query}"
     try:
         with YoutubeDL(opts) as y:
             info = y.extract_info(query, download=True)
-            info = info["entries"][0] if "entries" in info else info
+            info = info and (info["entries"][0] if "entries" in info else info)
+            if info is None or info.get("is_live"):
+                raise ValueError("live streams aren't supported")
             item["title"] = info["title"]
             item["vid"] = info["id"]
             item["artist"] = item["artist"] or info.get("artist") or info.get("channel") or info.get("uploader")
             d = info.get("duration")
             item["dur"] = item["dur"] or mmss(d)
             item["file"] = os.path.basename(y.prepare_filename(info))
+            if not os.path.exists(os.path.join(CACHE, item["file"])):
+                raise ValueError("download produced no audio file")
         item["status"] = "ready"
+        save()
     except Exception as e:
-        item.update(status="error", error=re.sub(r"^ERROR:\s*(\[\w+\]\s*\S+:\s*)?", "", str(e))[:100])  # keep the title, show a short reason
+        reason = re.sub(r"^ERROR:\s*(\[\w+\]\s*\S+:\s*)?", "", str(e))
+        item.update(status="error", error=reason[:100])  # keep the title, show a short reason
+        log_err(f"download failed: {item['title'][:60]}: {reason}")
+        save()
 
 
 def mmss(seconds):
@@ -110,11 +169,13 @@ def autofill():
         e = random.choice(picks)
         item = {"id": uuid.uuid4().hex[:8], "title": e.get("title") or e["id"], "status": "loading", "vid": e["id"],
                 "artist": e.get("uploader") or e.get("channel"), "dur": mmss(e.get("duration")), "by": "Autoplay"}
+        item["q"] = f"https://music.youtube.com/watch?v={e['id']}"
         with lock:
             queue.append(item)
-        fetch(item, f"https://music.youtube.com/watch?v={e['id']}")
+            save()
+        fetch(item, item["q"])
     except Exception as ex:
-        print("autoplay:", ex)
+        log_err(f"autoplay: {ex}")
     finally:
         auto_pending = False
 
@@ -150,6 +211,7 @@ def player_loop():
                     if nxt:
                         queue.remove(nxt)
                     current = nxt
+                    save()
                 drop_file(old)
                 if not nxt and autoplay and last_vid and not auto_pending and not any(q["status"] == "loading" for q in queue):
                     auto_pending = True
@@ -160,7 +222,7 @@ def player_loop():
                     sp.play_uri(f"http://{HOST}:{PORT}/f/{nxt['file']}", title=nxt["title"])
                     started_at = time.time()
         except Exception as e:
-            print("player:", e)
+            log_err(f"speaker: {e}")
 
 
 def need_speaker():
@@ -171,7 +233,7 @@ def need_speaker():
 @app.get("/api/state")
 def state():
     sp = speaker
-    return jsonify(current=current, queue=queue, host=is_host(), autoplay=autoplay,
+    return jsonify(current=current, queue=queue, host=is_host(), autoplay=autoplay, errors=list(errors)[:30],
                    speaker=sp and {"name": sp.player_name, "ip": sp.ip_address}, **snap)
 
 
@@ -221,6 +283,7 @@ def search():
     try:
         data = json.load(urllib.request.urlopen(req, timeout=10))
     except Exception as e:
+        log_err(f"search failed for '{q[:40]}': {e}")
         return f"search failed: {e}", 502
     out = []
     for r in walk(data):
@@ -250,11 +313,12 @@ def add():
     dur = str(j.get("dur") or "")
     item = {"id": uuid.uuid4().hex[:8], "title": q, "status": "loading", "vid": vid,
             "artist": str(j.get("artist") or "")[:100] or None, "dur": dur if DUR.match(dur) else None,
-            "by": str(j.get("by") or "")[:30] or None}
+            "by": str(j.get("by") or "")[:30] or None, "q": q}
     with lock:
         if vid and any(i and i.get("vid") == vid for i in [*queue, current]):
             return "already in the queue", 409
         queue.append(item)
+        save()
     threading.Thread(target=fetch, args=(item, q), daemon=True).start()
     return jsonify(item)
 
@@ -263,6 +327,7 @@ def add():
 def set_autoplay():
     global autoplay
     autoplay = bool((request.get_json(silent=True) or {}).get("on"))
+    save()
     return "", 204
 
 
@@ -271,6 +336,7 @@ def remove(id):
     with lock:
         gone = [q for q in queue if q["id"] == id]
         queue[:] = [q for q in queue if q["id"] != id]
+        save()
     for g in gone:
         drop_file(g)
     return "", 204
@@ -283,6 +349,7 @@ def move(id, how):
         if i is None or how not in ("up", "top"):
             return "not found", 404
         queue.insert(0 if how == "top" else max(i - 1, 0), queue.pop(i))
+        save()
     return "", 204
 
 
@@ -298,6 +365,7 @@ def reorder():
         if i is None:
             return "that song already started or was removed", 404
         queue.insert(max(0, min(to, len(queue) - 1)), queue.pop(i))  # `to` = final position
+        save()
     return "", 204
 
 
@@ -346,6 +414,7 @@ def index():
 
 
 if __name__ == "__main__":
+    restore()
     if os.environ.get("SONOS_IP"):
         use_speaker(os.environ["SONOS_IP"])
     threading.Thread(target=player_loop, daemon=True).start()

@@ -33,6 +33,7 @@ Allow inbound TCP on the port in the host firewall: the speaker downloads each t
 - Queue you can reorder by dragging the handle (or with the Next / up buttons), remove songs, and see who added each one
 - Autoplay: when the queue runs dry, a random song from the last song's YouTube Music radio is queued (toggle in the UI)
 - Play/pause, skip, volume (hold the +/- buttons to repeat), live elapsed time
+- Error log at the bottom of the page (download, search and speaker failures, with timestamps)
 - Only the host (localhost) can scan for or take over a speaker; guests cannot
 
 ## Limits
@@ -42,7 +43,8 @@ Allow inbound TCP on the port in the host firewall: the speaker downloads each t
 - Search uses YouTube Music's private web API and can break when YouTube changes it.
 - Spotify playlists and albums are not supported.
 - Downloading from YouTube may violate its terms of service; use it for music you're entitled to play, at your own risk.
-- State is in memory. Restarting the server clears the queue and the chosen speaker.
+- Live streams are rejected (they never finish downloading).
+- The queue, chosen speaker and autoplay setting are saved to `state.json` and `cache/` and restored on restart; the song that was playing starts again from the beginning.
 
 ## Layout
 

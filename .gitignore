@@ -1,3 +1,5 @@
 .venv/
 cache/
 __pycache__/
+state.json
+state.json.tmp
