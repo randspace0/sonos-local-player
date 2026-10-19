@@ -30,7 +30,8 @@ Allow inbound TCP on the port in the host firewall: the speaker downloads each t
 
 - Debounced YouTube Music search with thumbnail, artist and duration
 - Paste a YouTube link, or a Spotify **track** link (matched to the same song on YouTube; Spotify itself is DRM-protected)
-- Queue with "play next", move up, remove, and who added each song
+- Queue you can reorder by dragging the handle (or with the Next / up buttons), remove songs, and see who added each one
+- Autoplay: when the queue runs dry, a random song from the last song's YouTube Music radio is queued (toggle in the UI)
 - Play/pause, skip, volume (hold the +/- buttons to repeat), live elapsed time
 - Only the host (localhost) can scan for or take over a speaker; guests cannot
 

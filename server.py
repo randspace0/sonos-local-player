@@ -7,7 +7,8 @@
 Pipeline: yt-dlp downloads the audio -> we serve the file over HTTP -> Sonos pulls it
 via soco.play_uri. The host manages the speaker at http://localhost:8000.
 """
-import html, json, os, re, socket, threading, time, urllib.request, uuid
+import html, json, os, random, re, socket, threading, time, urllib.request, uuid
+from collections import deque
 from urllib.parse import urlparse
 import soco
 from flask import Flask, jsonify, request, send_from_directory
@@ -30,6 +31,10 @@ lock = threading.Lock()
 queue = []      # {id, title, status: loading|ready|error, vid, artist, dur, by, file}
 current = None
 started_at = 0.0
+autoplay = True          # when the queue runs dry, queue a random song like the last one
+auto_pending = False
+last_vid = None          # last song that started playing: the seed for autoplay
+recent = deque(maxlen=40)  # recently played video ids, so autoplay doesn't repeat itself
 snap = {"playing": False, "position": None, "duration": None, "volume": 0}  # refreshed by player_loop
 app = Flask(__name__, static_folder=os.path.join(ROOT, "static"), static_url_path="/static")
 
@@ -79,12 +84,39 @@ def fetch(item, query):
             item["title"] = info["title"]
             item["vid"] = info["id"]
             item["artist"] = item["artist"] or info.get("artist") or info.get("channel") or info.get("uploader")
-            d = int(info.get("duration") or 0)
-            item["dur"] = item["dur"] or (f"{d // 60}:{d % 60:02d}" if d else None)
+            d = info.get("duration")
+            item["dur"] = item["dur"] or mmss(d)
             item["file"] = os.path.basename(y.prepare_filename(info))
         item["status"] = "ready"
     except Exception as e:
-        item.update(status="error", title=f"failed: {str(e)[:80]}")
+        item.update(status="error", error=re.sub(r"^ERROR:\s*(\[\w+\]\s*\S+:\s*)?", "", str(e))[:100])  # keep the title, show a short reason
+
+
+def mmss(seconds):
+    d = int(seconds or 0)
+    return f"{d // 60}:{d % 60:02d}" if d else None
+
+
+def autofill():
+    """Queue a random song from the YouTube Music radio of the last played song."""
+    global auto_pending
+    try:
+        seed = last_vid
+        with YoutubeDL({"extract_flat": True, "quiet": True, "playlistend": 25}) as y:
+            info = y.extract_info(f"https://music.youtube.com/watch?v={seed}&list=RD{seed}", download=False)
+        picks = [e for e in info["entries"] if e.get("id") and e["id"] not in recent]
+        if not picks:
+            return
+        e = random.choice(picks)
+        item = {"id": uuid.uuid4().hex[:8], "title": e.get("title") or e["id"], "status": "loading", "vid": e["id"],
+                "artist": e.get("uploader") or e.get("channel"), "dur": mmss(e.get("duration")), "by": "Autoplay"}
+        with lock:
+            queue.append(item)
+        fetch(item, f"https://music.youtube.com/watch?v={e['id']}")
+    except Exception as ex:
+        print("autoplay:", ex)
+    finally:
+        auto_pending = False
 
 
 def drop_file(item):
@@ -96,7 +128,7 @@ def drop_file(item):
 
 
 def player_loop():
-    global current, started_at
+    global current, started_at, last_vid, auto_pending
     while True:
         time.sleep(2)
         sp = speaker
@@ -119,7 +151,12 @@ def player_loop():
                         queue.remove(nxt)
                     current = nxt
                 drop_file(old)
+                if not nxt and autoplay and last_vid and not auto_pending and not any(q["status"] == "loading" for q in queue):
+                    auto_pending = True
+                    threading.Thread(target=autofill, daemon=True).start()
                 if nxt:
+                    last_vid = nxt.get("vid") or last_vid
+                    recent.append(nxt.get("vid"))
                     sp.play_uri(f"http://{HOST}:{PORT}/f/{nxt['file']}", title=nxt["title"])
                     started_at = time.time()
         except Exception as e:
@@ -134,7 +171,7 @@ def need_speaker():
 @app.get("/api/state")
 def state():
     sp = speaker
-    return jsonify(current=current, queue=queue, host=is_host(),
+    return jsonify(current=current, queue=queue, host=is_host(), autoplay=autoplay,
                    speaker=sp and {"name": sp.player_name, "ip": sp.ip_address}, **snap)
 
 
@@ -222,6 +259,13 @@ def add():
     return jsonify(item)
 
 
+@app.post("/api/autoplay")
+def set_autoplay():
+    global autoplay
+    autoplay = bool((request.get_json(silent=True) or {}).get("on"))
+    return "", 204
+
+
 @app.post("/api/remove/<id>")
 def remove(id):
     with lock:
@@ -239,6 +283,21 @@ def move(id, how):
         if i is None or how not in ("up", "top"):
             return "not found", 404
         queue.insert(0 if how == "top" else max(i - 1, 0), queue.pop(i))
+    return "", 204
+
+
+@app.post("/api/reorder")
+def reorder():
+    j = request.get_json(silent=True) or {}
+    try:
+        id, to = str(j["id"]), int(j["to"])
+    except (KeyError, TypeError, ValueError):
+        return "bad request", 400
+    with lock:
+        i = next((n for n, q in enumerate(queue) if q["id"] == id), None)
+        if i is None:
+            return "that song already started or was removed", 404
+        queue.insert(max(0, min(to, len(queue) - 1)), queue.pop(i))  # `to` = final position
     return "", 204
 
 

@@ -2,87 +2,279 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0F0F23" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F5F6FB" media="(prefers-color-scheme: light)">
 <link rel="stylesheet" href="/static/pico.min.css">
 <title>Sonos Queue</title>
 <style>
-  img.t { width: 64px; height: 36px; object-fit: cover; border-radius: 4px; flex: none }
-  img.big { width: 100%; max-width: 320px; height: auto; aspect-ratio: 16/9; display: block; margin-bottom: .5rem }
-  ul.rows { list-style: none; padding: 0 }
-  ul.rows li { display: flex; align-items: center; gap: .75rem; padding: .35rem 0 }
-  ul.rows .meta { flex: 1; min-width: 0; overflow-wrap: anywhere }
-  ul.rows button { width: auto; margin: 0; padding: .35rem .7rem; font-size: .85rem }
-  .acts { display: flex; gap: .3rem; flex: none }
-  output { display: flex; align-items: center; justify-content: center; min-width: 4.5rem }
-  #status { position: fixed; left: 1rem; right: 1rem; bottom: 1rem; margin: 0; padding: .6rem 1rem; border-radius: 6px;
-            background: var(--pico-primary-background); color: var(--pico-primary-inverse); text-align: center }
-  #status.err { background: var(--pico-del-color) }
+  /* Semantic tokens, mapped onto Pico's variables. Light first, dark pairs below. */
+  :root:root {
+    --bg: #F5F6FB; --surface: #FFFFFF; --surface-2: #EEF0F8; --border: #D5D9EA;
+    --text: #0F172A; --muted: #4B5578;
+    --accent: #15803D; --on-accent: #FFFFFF; --danger: #B91C1C;
+    --shadow: 0 1px 2px rgb(15 23 42 / .08), 0 4px 16px rgb(15 23 42 / .06);
+    --r: 16px; --ease: cubic-bezier(.2, .7, .2, 1);
+    --pico-font-family: ui-sans-serif, Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --pico-background-color: var(--bg); --pico-color: var(--text);
+    --pico-muted-color: var(--muted); --pico-muted-border-color: var(--border);
+    --pico-primary: var(--accent); --pico-primary-background: var(--accent); --pico-primary-border: var(--accent);
+    --pico-primary-hover: var(--accent); --pico-primary-hover-background: var(--accent); --pico-primary-hover-border: var(--accent);
+    --pico-primary-underline: var(--accent); --pico-primary-inverse: var(--on-accent);
+    --pico-primary-focus: color-mix(in srgb, var(--accent) 35%, transparent);
+    --pico-form-element-background-color: var(--surface); --pico-form-element-border-color: var(--border);
+    --pico-form-element-color: var(--text); --pico-form-element-placeholder-color: var(--muted);
+    --pico-form-element-active-border-color: var(--accent); --pico-form-element-focus-color: var(--accent);
+    --pico-border-radius: 12px; --pico-spacing: 1rem;
+    --pico-card-background-color: var(--surface); --pico-modal-overlay-background-color: rgb(0 0 0 / .55);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:root {
+      --bg: #0F0F23; --surface: #17172F; --surface-2: #232344; --border: #34345A;
+      --text: #F1F5F9; --muted: #A9ACCB;
+      --accent: #22C55E; --on-accent: #052E16; --danger: #F87171;
+      --shadow: 0 1px 2px rgb(0 0 0 / .5), 0 8px 24px rgb(0 0 0 / .35);
+    }
+  }
+  html { background: var(--bg) }
+  body { margin: 0; color: var(--text); font-size: 1rem; line-height: 1.5 }
+  main { max-width: 34rem; margin: 0 auto; padding: 0 1rem calc(6rem + env(safe-area-inset-bottom)) }
+  h1, h2 { margin: 0; font-weight: 700; letter-spacing: -.01em }
+  small, .muted { color: var(--muted) }
+  [hidden] { display: none !important }
+
+  .ic { width: 1.5rem; height: 1.5rem; fill: none; stroke: currentColor; stroke-width: 2;
+        stroke-linecap: round; stroke-linejoin: round; flex: none; pointer-events: none }
+  .ic.solid { fill: currentColor }
+
+  /* every control is at least 44px and gives instant pressed feedback */
+  select, input { margin: 0 }
+  .btn, .icon, .chip, .play, .row button { margin: 0 } /* Pico's [type=button] rule adds a bottom margin */
+  .btn, .icon, .chip { display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+    min-height: 2.75rem; min-width: 2.75rem; padding: 0 1rem; border-radius: 999px; font-weight: 600;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text); width: auto; cursor: pointer;
+    transition: transform .12s var(--ease), background-color .15s, opacity .15s; touch-action: manipulation }
+  .icon { padding: 0 }
+  .btn:active, .icon:active, .chip:active, .play:active { transform: scale(.94) }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent) }
+  .icon.danger { color: var(--danger) }
+  :is(button, a, input, select, summary):focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; box-shadow: none }
+  button:disabled, button[aria-disabled=true] { opacity: .45; cursor: not-allowed; transform: none }
+
+  /* header */
+  header.top { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between;
+    gap: .75rem; padding: calc(.75rem + env(safe-area-inset-top)) 0 .75rem; background: var(--bg) }
+  header.top h1 { font-size: 1.25rem }
+  .chip { min-width: 0; max-width: 60%; padding: 0 .9rem; font-weight: 500; font-size: .9rem }
+  .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .chip:disabled { opacity: 1; cursor: default; background: transparent; border-color: transparent; padding: 0 }
+  .dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--muted); flex: none }
+  .dot.on { background: var(--accent) }
+
+  /* now playing */
+  .hero { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; padding: 1rem;
+    box-shadow: var(--shadow); display: grid; gap: 1rem }
+  .art { position: relative; width: min(100%, 22rem); aspect-ratio: 1; margin: 0 auto; border-radius: var(--r);
+    overflow: hidden; background: var(--surface-2); display: grid; place-items: center; color: var(--muted) }
+  .art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover }
+  .art .ic { width: 30%; height: 30% }
+  .titles h2 { font-size: 1.35rem; line-height: 1.25; overflow-wrap: anywhere }
+  .titles p { margin: .15rem 0 0; color: var(--muted) }
+  .scrub { display: grid; gap: .35rem }
+  progress { height: .5rem; margin: 0; border-radius: 999px; background: var(--surface-2) }
+  progress::-webkit-progress-bar { background: var(--surface-2); border-radius: 999px }
+  progress::-webkit-progress-value { background: var(--accent); border-radius: 999px; transition: width 1s linear }
+  progress::-moz-progress-bar { background: var(--accent); border-radius: 999px }
+  .times { display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums }
+  .transport { display: flex; align-items: center; justify-content: center; gap: 1.5rem }
+  .play { width: 4.25rem; height: 4.25rem; border-radius: 50%; padding: 0; background: var(--accent); color: var(--on-accent);
+    border: 0; display: grid; place-items: center; cursor: pointer; transition: transform .12s var(--ease), opacity .15s }
+  .play .ic { width: 2rem; height: 2rem }
+  .skipbtn { width: 3.25rem; height: 3.25rem; min-height: 0 }
+  .vol { display: grid; gap: .25rem }
+  .vol-head { display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted) }
+  .vol-head output { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600 }
+  .vol-row { display: flex; align-items: center; gap: .5rem }
+  .vol-row input[type=range] { flex: 1; margin: 0; accent-color: var(--accent); min-height: 2.75rem; background: transparent }
+
+  /* sections */
+  section { margin-top: 1.75rem }
+  .sec-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: .75rem }
+  .sec-head h2 { font-size: 1.15rem }
+  .sec-head .count { margin-left: .5rem; margin-right: auto }
+  label.auto { display: inline-flex; align-items: center; gap: .5rem; margin: 0; min-height: 2.75rem; font-size: .9rem; color: var(--muted); cursor: pointer }
+  label.auto input { margin: 0 }
+  .count { color: var(--muted); font-size: .9rem; font-variant-numeric: tabular-nums }
+
+  .search { position: relative }
+  .search .ic { position: absolute; left: .9rem; top: 50%; translate: 0 -50%; color: var(--muted); width: 1.25rem; height: 1.25rem }
+  .search input { width: 100%; height: 3rem; padding-left: 2.75rem; border-radius: 999px; font-size: 1rem }
+  label.name { display: grid; gap: .25rem; margin-top: .75rem; font-size: .85rem; color: var(--muted) }
+  label.name input { height: 2.75rem; font-size: 1rem; border-radius: 12px }
+
+  ul.rows { list-style: none; margin: .5rem 0 0; padding: 0; display: grid; gap: .5rem }
+  .row { display: grid; grid-template-columns: 3rem 1fr; column-gap: .75rem; row-gap: .25rem; align-items: center;
+    padding: .6rem; background: var(--surface); border: 1px solid var(--border); border-radius: 14px }
+  .row.result { grid-template-columns: 3rem 1fr auto }
+  .thumb { width: 3rem; height: 3rem; border-radius: 10px; overflow: hidden; background: var(--surface-2); display: grid;
+    place-items: center; color: var(--muted); position: relative }
+  .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover }
+  .thumb .ic { width: 1.25rem; height: 1.25rem }
+  .meta { min-width: 0; overflow-wrap: anywhere }
+  .meta .t { font-weight: 600; line-height: 1.3 }
+  .meta small { display: block; font-variant-numeric: tabular-nums }
+  .row.q { grid-template-columns: 2.75rem 3rem 1fr }
+  .row.q .acts { grid-column: 2 / 4 }
+  .row { transition: transform .15s var(--ease), box-shadow .15s }
+  .grip { cursor: grab; touch-action: none; background: transparent; border-color: transparent; color: var(--muted); min-width: 2.75rem; padding: 0 }
+  .row.dragging { transition: none; z-index: 5; box-shadow: var(--shadow); cursor: grabbing; position: relative }
+  .acts { grid-column: 2; display: flex; justify-content: flex-end; gap: .25rem }
+  .state { display: inline-flex; align-items: center; gap: .4rem }
+  .state.err { color: var(--danger) }
+  .spin { width: .9rem; height: .9rem; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .8s linear infinite }
+  @keyframes spin { to { rotate: 360deg } }
+  .empty { display: grid; justify-items: center; gap: .5rem; padding: 2rem 1rem; text-align: center; color: var(--muted);
+    border: 1px dashed var(--border); border-radius: 14px }
+  .empty .ic { width: 2rem; height: 2rem }
+  #q[aria-busy=true] { background-image: none }
+
+  /* toast: above the home indicator, never steals focus */
+  #status { position: fixed; z-index: 30; left: 1rem; right: 1rem; bottom: calc(1rem + env(safe-area-inset-bottom)); margin: 0 auto;
+    max-width: 30rem; padding: .75rem 1rem; border-radius: 12px; text-align: center; font-weight: 500;
+    background: var(--text); color: var(--bg); box-shadow: var(--shadow); animation: rise .2s var(--ease) }
+  #status.err { background: var(--danger); color: #fff }
   #status:empty { display: none }
+  @keyframes rise { from { opacity: 0; translate: 0 .5rem } }
+
+  dialog article { max-width: 28rem; width: calc(100vw - 2rem); border-radius: 20px; background: var(--surface); color: var(--text) }
+  dialog footer { display: flex; gap: .5rem; justify-content: flex-end }
+  dialog header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem }
+  dialog h2 { font-size: 1.15rem }
+
+  @media (min-width: 34rem) { /* room for the actions beside the title */
+    .row { grid-template-columns: 3rem 1fr auto }
+    .row.q { grid-template-columns: 2.75rem 3rem 1fr auto }
+    .row .acts, .row.q .acts { grid-column: auto }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important }
+    .spin { animation: none; border-top-color: var(--border) }
+  }
 </style>
 </head>
 <body>
-<main class="container">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></symbol>
+  <symbol id="i-skip" viewBox="0 0 24 24"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-top" viewBox="0 0 24 24"><path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+  <symbol id="i-speaker" viewBox="0 0 24 24"><rect width="16" height="20" x="4" y="2" rx="2"/><circle cx="12" cy="14" r="4"/><line x1="12" x2="12.01" y1="6" y2="6"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+</svg>
+
+<main>
+  <header class="top">
+    <h1>Sonos Queue</h1>
+    <button id="chip" class="chip" type="button" aria-haspopup="dialog">
+      <span class="dot" id="dot"></span><span id="chipText">No speaker</span>
+    </button>
+  </header>
   <p id="status" role="status" aria-live="polite"></p>
+  <p id="nospk" class="muted" hidden>Waiting for the host to pick a speaker.</p>
 
-  <details id="speakerBox" hidden>
-    <summary id="active">Speaker</summary>
-    <div role="group">
-      <select id="spk" aria-label="Speaker"><option value="">none</option></select>
-      <button id="scan" class="secondary" type="button">Scan</button>
-      <button id="take" type="button">Take over</button>
+  <article class="hero" aria-label="Now playing" style="margin:0;padding:1rem">
+    <div class="art" id="artBox">
+      <svg class="ic" aria-hidden="true" id="artIcon"><use href="#i-music"/></svg>
+      <img id="art" alt="" hidden>
     </div>
-  </details>
-  <p id="nospk" hidden><small>Waiting for the host to pick a speaker.</small></p>
-
-  <article>
-    <header>Now playing</header>
-    <img id="art" class="big" alt="" hidden>
-    <div id="now">Nothing playing</div>
-    <progress id="bar" aria-label="Track progress" value="0" max="1"></progress>
-    <small id="time"></small>
-    <footer>
-      <div role="group">
-        <button id="pp" type="button">Play</button>
-        <button id="skip" class="secondary" type="button">Skip</button>
+    <div class="titles">
+      <h2 id="now">Nothing playing</h2>
+      <p id="by">Add a song below to get started</p>
+    </div>
+    <div class="scrub">
+      <progress id="bar" aria-label="Track progress" value="0" max="1"></progress>
+      <div class="times"><span id="elapsed">0:00</span><span id="total">0:00</span></div>
+    </div>
+    <div class="transport">
+      <button id="pp" class="play" type="button" aria-label="Play"><svg class="ic solid"><use href="#i-play"/></svg></button>
+      <button id="skip" class="icon skipbtn" type="button" aria-label="Skip to next song"><svg class="ic solid"><use href="#i-skip"/></svg></button>
+    </div>
+    <div class="vol">
+      <div class="vol-head"><label for="vol">Volume</label><output id="volnum" for="vol">0%</output></div>
+      <div class="vol-row">
+        <button id="vdn" class="icon" type="button" aria-label="Volume down"><svg class="ic"><use href="#i-minus"/></svg></button>
+        <input id="vol" type="range" min="0" max="100" value="0">
+        <button id="vup" class="icon" type="button" aria-label="Volume up"><svg class="ic"><use href="#i-plus"/></svg></button>
       </div>
-      <div role="group">
-        <button id="vdn" class="secondary" type="button" aria-label="Volume down">&minus;</button>
-        <output id="volnum" for="vol">0%</output>
-        <button id="vup" class="secondary" type="button" aria-label="Volume up">+</button>
-      </div>
-      <input id="vol" type="range" min="0" max="100" aria-label="Volume">
-    </footer>
+    </div>
   </article>
 
-  <form id="form">
-    <input id="name" placeholder="Your name (optional, shown next to what you add)" maxlength="30" autocomplete="nickname">
-    <fieldset role="group">
-      <input id="q" type="search" placeholder="Search YouTube Music, or paste a link" autocomplete="off" aria-label="Search">
-      <button>Add</button>
-    </fieldset>
-  </form>
-  <ul id="results" class="rows" aria-label="Search results"></ul>
+  <section aria-labelledby="addh">
+    <div class="sec-head"><h2 id="addh">Add a song</h2></div>
+    <form id="form" aria-label="Search songs">
+      <div class="search">
+        <svg class="ic"><use href="#i-search"/></svg>
+        <input id="q" type="search" enterkeyhint="search" placeholder="Search YouTube Music or paste a link" autocomplete="off" aria-label="Search songs">
+      </div>
+      <label class="name">Your name (shown next to songs you add)
+        <input id="name" maxlength="30" autocomplete="nickname" placeholder="Optional">
+      </label>
+    </form>
+    <ul id="results" class="rows" aria-label="Search results"></ul>
+  </section>
 
-  <h2>Queue</h2>
-  <ul id="list" class="rows"></ul>
+  <section aria-labelledby="qh">
+    <div class="sec-head"><h2 id="qh">Up next</h2><span class="count" id="count"></span>
+      <label class="auto"><input id="auto" type="checkbox" role="switch" checked> Autoplay</label></div>
+    <ul id="list" class="rows"></ul>
+  </section>
 </main>
+
+<dialog id="spkDlg" aria-labelledby="spkh">
+  <article>
+    <header><h2 id="spkh">Speaker</h2>
+      <button class="icon" type="button" id="spkClose" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button></header>
+    <label>Choose a speaker on this network
+      <select id="spk"><option value="">none</option></select>
+    </label>
+    <p class="muted" style="margin:.5rem 0 1rem"><small>Taking over switches the whole queue to that speaker for everyone.</small></p>
+    <footer>
+      <button id="scan" class="btn" type="button"><svg class="ic"><use href="#i-scan"/></svg>Scan</button>
+      <button id="take" class="btn primary" type="button">Take over</button>
+    </footer>
+  </article>
+</dialog>
 
 <script>
 const $ = id => document.getElementById(id)
+const NS = 'http://www.w3.org/2000/svg'
+const icon = (name, solid) => {
+  const s = document.createElementNS(NS, 'svg'); s.setAttribute('class', 'ic' + (solid ? ' solid' : '')); s.setAttribute('aria-hidden', 'true')
+  const u = document.createElementNS(NS, 'use'); u.setAttribute('href', '#i-' + name); s.append(u); return s
+}
 // DOM builder: all text goes through textContent, so nothing a guest sends can inject markup.
 const h = (tag, props = {}, ...kids) => {
   const e = document.createElement(tag)
-  for (const [k, v] of Object.entries(props)) k.includes('-') ? e.setAttribute(k, v) : (e[k] = v)
+  for (const [k, v] of Object.entries(props)) k === 'dataset' ? Object.assign(e.dataset, v) : k.includes('-') ? e.setAttribute(k, v) : (e[k] = v)
   e.append(...kids.filter(k => k != null && k !== false))
   return e
 }
 const sec = t => (t || '').split(':').reduce((a, x) => a * 60 + (+x || 0), 0)
 const fmt = n => Math.floor(n / 60) + ':' + String(Math.floor(n % 60)).padStart(2, '0')
-const thumb = (v, cls = 't') => v && h('img', {
-  className: cls, alt: '', loading: 'lazy', src: `https://i.ytimg.com/vi/${encodeURIComponent(v)}/mqdefault.jpg`,
-  onerror() { this.hidden = true }, // offline / blocked: drop the broken image
-})
+const artUrl = v => `https://i.ytimg.com/vi/${encodeURIComponent(v)}/mqdefault.jpg`
+const thumb = v => h('div', { className: 'thumb' }, icon('music'),
+  v && h('img', { alt: '', loading: 'lazy', src: artUrl(v), onerror() { this.remove() } })) // offline: keep the music-note placeholder
 const store = { get: k => { try { return localStorage.getItem(k) || '' } catch { return '' } },
                 set: (k, v) => { try { localStorage.setItem(k, v) } catch {} } }
 
@@ -104,32 +296,35 @@ async function api(path, body, method = 'POST') {
       return null
     }
     return r.status === 204 ? true : await r.json()
-  } catch { say('Server unreachable', true); return null }
+  } catch { say('Server unreachable. Check your Wi-Fi.', true); return null }
 }
 
 // ---- state ----
-let lastQueue = '', queued = new Set(), pos = 0, dur = 0, playing = false, stamp = 0, volLock = 0, hasSpeaker = false, hasTrack = false
+let lastQueue = '', queued = new Set(), pos = 0, dur = 0, playing = false, stamp = 0, volLock = 0
+let dragging = false, hasSpeaker = false, hasTrack = false, asked = false
 
 async function load() {
   const s = await api('state', null, 'GET')
   if (!s) return
   hasSpeaker = !!s.speaker
-  $('speakerBox').hidden = !s.host
+  $('chip').disabled = !s.host
+  $('chipText').textContent = s.speaker ? s.speaker.name : (s.host ? 'Pick a speaker' : 'No speaker')
+  $('dot').className = 'dot' + (hasSpeaker ? ' on' : '')
   $('nospk').hidden = s.host || hasSpeaker
-  $('active').textContent = s.speaker ? 'Speaker: ' + s.speaker.name : 'No speaker taken over yet'
-  for (const id of ['pp', 'skip', 'vdn', 'vup', 'vol']) $(id).disabled = !hasSpeaker
-  if (s.host && !hasSpeaker) $('speakerBox').open = true
+  if (s.host && !hasSpeaker && !asked) { asked = true; $('spkDlg').showModal() }
+  for (const id of ['pp', 'vdn', 'vup', 'vol']) $(id).disabled = !hasSpeaker
 
   const c = s.current
   hasTrack = !!c
-  $('now').textContent = c ? c.title + (c.artist ? ' — ' + c.artist : '') : 'Nothing playing'
-  $('art').hidden = !(c && c.vid)
-  if (c && c.vid) {
-    const src = `https://i.ytimg.com/vi/${encodeURIComponent(c.vid)}/mqdefault.jpg`
-    if ($('art').src !== src) $('art').src = src
-  }
-  $('art').onerror = () => $('art').hidden = true
-  $('pp').textContent = s.playing ? 'Pause' : 'Play'
+  $('now').textContent = c ? c.title : 'Nothing playing'
+  $('by').textContent = c ? [c.artist, c.by && 'added by ' + c.by].filter(Boolean).join(' · ') : 'Add a song below to get started'
+  const img = $('art')
+  img.hidden = !(c && c.vid)
+  if (c && c.vid && img.dataset.v !== c.vid) { img.dataset.v = c.vid; img.src = artUrl(c.vid) }
+  img.onerror = () => img.hidden = true
+  const label = s.playing ? 'Pause' : 'Play'
+  $('pp').setAttribute('aria-label', label)
+  $('pp').querySelector('use').setAttribute('href', s.playing ? '#i-pause' : '#i-play')
   $('skip').disabled = !hasSpeaker || !c
   playing = s.playing; pos = sec(s.position); dur = sec(s.duration); stamp = Date.now()
   tick()
@@ -139,36 +334,92 @@ async function load() {
     $('volnum').value = s.volume + '%'
   }
 
+  if (document.activeElement !== $('auto')) $('auto').checked = s.autoplay
   queued = new Set([...s.queue, c].filter(Boolean).map(i => i.vid).filter(Boolean))
   const key = JSON.stringify(s.queue)
-  if (key !== lastQueue) { lastQueue = key; renderQueue(s.queue) } // only redraw on change: no flicker, no lost taps
+  if (key !== lastQueue && !dragging) { lastQueue = key; renderQueue(s.queue) } // only redraw on change: no flicker, no lost taps
 }
 
+const act = (label, name, onclick, cls = '') =>
+  h('button', { className: 'icon ' + cls, type: 'button', 'aria-label': label, title: label, onclick }, icon(name))
+
 function renderQueue(items) {
-  $('list').replaceChildren(...(items.length ? items.map((i, n) => h('li', {},
+  $('count').textContent = items.length ? items.length + (items.length === 1 ? ' song' : ' songs') : ''
+  $('list').replaceChildren(...(items.length ? items.map((i, n) => h('li', { className: 'row' + (items.length > 1 ? ' q' : ''), dataset: { id: i.id } },
+    items.length > 1 && h('button', { className: 'icon grip', type: 'button', 'aria-label': 'Drag to reorder: ' + i.title, title: 'Drag to reorder',
+                                       onpointerdown: e => startDrag(e, i.id) }, icon('grip')),
     thumb(i.vid),
     h('div', { className: 'meta' },
-      h('div', {}, i.title),
-      h('small', {}, [i.artist, i.dur, i.by && 'added by ' + i.by].filter(Boolean).join(' · ')),
-      i.status === 'loading' && h('small', { 'aria-busy': 'true' }, ' downloading'),
-      i.status === 'error' && h('small', {}, ' failed')),
+      h('div', { className: 't' }, i.title),
+      i.status === 'loading'
+        ? h('small', { className: 'state' }, h('span', { className: 'spin' }), 'Downloading…')
+        : i.status === 'error'
+          ? h('small', { className: 'state err' }, (i.error || 'Download failed') + '. Remove it and try another.')
+          : h('small', {}, [i.artist, i.dur, i.by && 'added by ' + i.by].filter(Boolean).join(' · '))),
     h('div', { className: 'acts' },
-      n > 0 && h('button', { className: 'outline secondary', title: 'Play next', 'aria-label': 'Play next: ' + i.title,
-                             onclick: () => api('move/' + i.id + '/top').then(load) }, 'Next'),
-      n > 0 && h('button', { className: 'outline secondary', 'aria-label': 'Move up: ' + i.title,
-                             onclick: () => api('move/' + i.id + '/up').then(load) }, '↑'),
-      h('button', { className: 'outline secondary', 'aria-label': 'Remove ' + i.title,
-                    onclick: () => api('remove/' + i.id).then(load) }, 'Remove'))))
-    : [h('li', {}, h('small', {}, 'Queue is empty. Search above to add a song.'))]))
+      n > 0 && act('Play next: ' + i.title, 'top', () => api('move/' + i.id + '/top').then(load)),
+      n > 0 && act('Move up: ' + i.title, 'up', () => api('move/' + i.id + '/up').then(load)),
+      act('Remove ' + i.title, 'x', () => api('remove/' + i.id).then(load), 'danger'))))
+    : [h('li', { className: 'empty' }, icon('music'), h('strong', {}, 'The queue is empty'), h('span', {}, $('auto').checked ? 'Autoplay will pick songs like the last one, or search above.' : 'Search above and tap Add.'))]))
+}
+
+// Drag to reorder: pointer events so it works with mouse and touch. The Next/Up buttons stay as the non-drag alternative.
+function startDrag(e, id) {
+  if (e.button > 0) return
+  e.preventDefault()
+  const list = $('list'), rows = [...list.children], li = rows.find(r => r.dataset.id === id)
+  const from = rows.indexOf(li), btn = e.currentTarget
+  const rects = rows.map(r => { const b = r.getBoundingClientRect(); return { mid: b.top + scrollY + b.height / 2, h: b.height } })
+  const step = rects[from].h + (rows[1] ? rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().bottom : 8)
+  const y0 = e.pageY
+  let to = from, lastY = e.clientY, edge
+  dragging = true
+  li.classList.add('dragging')
+  btn.setPointerCapture(e.pointerId)
+
+  const place = () => {
+    const dy = lastY + scrollY - y0
+    li.style.transform = `translateY(${dy}px)`
+    const center = rects[from].mid + dy
+    to = rects.filter((r, i) => i !== from && r.mid < center).length
+    rows.forEach((r, i) => {
+      if (i === from) return
+      r.style.transform = from < to && i > from && i <= to ? `translateY(${-step}px)`
+        : from > to && i < from && i >= to ? `translateY(${step}px)` : ''
+    })
+  }
+  const onMove = ev => { lastY = ev.clientY; place() }
+  edge = setInterval(() => { // auto-scroll near the screen edge while dragging
+    if (lastY < 80) scrollBy(0, -10); else if (lastY > innerHeight - 80) scrollBy(0, 10); else return
+    place()
+  }, 16)
+  const finish = async ev => {
+    clearInterval(edge)
+    btn.removeEventListener('pointermove', onMove)
+    btn.removeEventListener('pointerup', finish)
+    btn.removeEventListener('pointercancel', finish)
+    rows.forEach(r => r.style.transform = '')
+    li.classList.remove('dragging')
+    if (ev.type === 'pointerup' && to !== from) {
+      list.insertBefore(li, to > from ? rows[to].nextSibling : rows[to]) // optimistic: no snap-back while the server catches up
+      await api('reorder', { id, to })
+    }
+    dragging = false
+    lastQueue = ''
+    load()
+  }
+  btn.addEventListener('pointermove', onMove)
+  btn.addEventListener('pointerup', finish)
+  btn.addEventListener('pointercancel', finish)
 }
 
 // elapsed time ticks every second between polls
 function tick() {
-  const c = hasTrack
   const p = Math.min(dur || Infinity, pos + (playing ? (Date.now() - stamp) / 1000 : 0))
   $('bar').max = dur || 1
-  $('bar').value = c && dur ? p : 0
-  $('time').textContent = c && dur ? fmt(p) + ' / ' + fmt(dur) : ''
+  $('bar').value = hasTrack && dur ? p : 0
+  $('elapsed').textContent = hasTrack && dur ? fmt(p) : '0:00'
+  $('total').textContent = hasTrack && dur ? fmt(dur) : '0:00'
 }
 
 // ---- controls ----
@@ -194,11 +445,15 @@ function hold(btn, d) { // tap = 1 step, press and hold = repeat
 }
 hold($('vdn'), -1); hold($('vup'), 1)
 
+$('auto').onchange = () => api('autoplay', { on: $('auto').checked })
+
 // ---- speaker (host only) ----
+$('chip').onclick = () => $('spkDlg').showModal()
+$('spkClose').onclick = () => $('spkDlg').close()
 $('scan').onclick = async () => {
-  $('scan').setAttribute('aria-busy', 'true')
+  $('scan').setAttribute('aria-busy', 'true'); $('scan').disabled = true
   const list = await api('speakers', null, 'GET')
-  $('scan').removeAttribute('aria-busy')
+  $('scan').removeAttribute('aria-busy'); $('scan').disabled = false
   if (!list) return
   if (!list.length) say('No speakers found on this network', true)
   const sel = $('spk').value
@@ -207,7 +462,8 @@ $('scan').onclick = async () => {
 }
 $('take').onclick = async () => {
   if (!$('spk').value) return say('Choose a speaker first', true)
-  if (await api('speaker', { ip: $('spk').value })) say('Now controlling ' + $('spk').selectedOptions[0].text)
+  const name = $('spk').selectedOptions[0].text
+  if (await api('speaker', { ip: $('spk').value })) { say('Now controlling ' + name); $('spkDlg').close() }
   load()
 }
 
@@ -229,23 +485,25 @@ $('q').oninput = () => {
       const r = await fetch('/api/search?q=' + encodeURIComponent(v), { signal: ctl.signal })
       if (!r.ok) throw new Error()
       renderResults(await r.json())
-    } catch (e) { if (e.name !== 'AbortError') say('Search failed, try again', true) }
+    } catch (e) { if (e.name !== 'AbortError') say('Search failed. Try again.', true) }
     $('q').removeAttribute('aria-busy')
   }, 400)
 }
 
 function renderResults(items) {
   $('results').replaceChildren(...(items.length ? items.map(x => {
-    const btn = h('button', { type: 'button', 'aria-label': 'Add ' + x.title, disabled: queued.has(x.vid) }, queued.has(x.vid) ? 'Queued' : 'Add')
+    const done = queued.has(x.vid)
+    const btn = h('button', { className: 'btn' + (done ? '' : ' primary'), type: 'button', 'aria-label': (done ? 'Already queued: ' : 'Add ') + x.title, disabled: done },
+      icon(done ? 'check' : 'plus'), done ? 'Queued' : 'Add')
     btn.onclick = async () => {
       btn.disabled = true
       if (await add(x.url, { vid: x.vid, artist: x.artist, dur: x.dur })) {
-        btn.textContent = 'Queued'; queued.add(x.vid); say('Added: ' + x.title); load()
+        btn.className = 'btn'; btn.replaceChildren(icon('check'), 'Queued'); queued.add(x.vid); say('Added: ' + x.title); load()
       } else btn.disabled = false
     }
-    return h('li', {}, thumb(x.vid),
-      h('div', { className: 'meta' }, h('div', {}, x.title), h('small', {}, x.artist + ' · ' + x.dur)), btn)
-  }) : [h('li', {}, h('small', {}, 'No results'))]))
+    return h('li', { className: 'row result' }, thumb(x.vid),
+      h('div', { className: 'meta' }, h('div', { className: 't' }, x.title), h('small', {}, x.artist + ' · ' + x.dur)), btn)
+  }) : [h('li', { className: 'empty' }, icon('search'), h('span', {}, 'No songs found. Try different words, or paste a link.'))]))
 }
 
 $('form').onsubmit = async e => {
