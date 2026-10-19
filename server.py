@@ -16,8 +16,10 @@ from yt_dlp import YoutubeDL
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("PORT", 8000))
-CACHE = os.path.join(ROOT, "cache")
-STATE = os.path.join(ROOT, "state.json")  # queue, speaker and autoplay survive restarts
+# One data folder per port: two servers must never share a cache, or one deletes the other's songs
+DATA = os.path.join(ROOT, "data", str(PORT))
+CACHE = os.path.join(DATA, "cache")
+STATE = os.path.join(DATA, "state.json")  # queue, speaker and autoplay survive restarts
 os.makedirs(CACHE, exist_ok=True)
 
 VID = re.compile(r"^[\w-]{11}$")
@@ -30,6 +32,8 @@ lock = threading.RLock()
 queue = []      # {id, title, status: loading|ready|error, vid, artist, dur, by, file}
 current = None
 started_at = 0.0
+skipped = False          # a guest pressed Skip: the next STOPPED is expected, not a failure
+progress = (0, 0)        # (position, duration) in seconds from the last poll that saw PLAYING
 autoplay = True          # when the queue runs dry, queue a random song like the last one
 auto_pending = False
 last_vid = None          # last song that started playing: the seed for autoplay
@@ -189,7 +193,7 @@ def drop_file(item):
 
 
 def player_loop():
-    global current, started_at, last_vid, auto_pending
+    global current, started_at, last_vid, auto_pending, skipped, progress
     while True:
         time.sleep(2)
         sp = speaker
@@ -201,12 +205,23 @@ def player_loop():
             if current:
                 t = sp.get_current_track_info()  # real position/duration as "H:MM:SS"
                 snap.update(position=t.get("position"), duration=t.get("duration"))
+            if state == "PLAYING" and current:
+                progress = (secs(snap["position"]), secs(snap["duration"]))
             # STOPPED only happens when a track ends (pause is PAUSED_PLAYBACK)
             if state == "STOPPED" or (current is None and state != "PLAYING"):
                 if time.time() - started_at < 10:
                     continue  # grace: play_uri hasn't reached PLAYING yet
+                pos, dur = progress
+                if current and not skipped and not (dur and pos >= dur - 8):
+                    # stopped long before the end: the speaker couldn't play it, don't mistake that for "finished"
+                    log_err(f"speaker stopped '{current['title'][:50]}' early ({pos}s of {dur}s). Check the host firewall and that the file is reachable.")
+                skipped, progress = False, (0, 0)
                 with lock:
                     nxt = next((q for q in queue if q["status"] == "ready"), None)
+                    while nxt and not os.path.exists(os.path.join(CACHE, nxt["file"])):
+                        log_err(f"file for '{nxt['title'][:50]}' is missing, skipping it")
+                        queue.remove(nxt)
+                        nxt = next((q for q in queue if q["status"] == "ready"), None)
                     old = current
                     if nxt:
                         queue.remove(nxt)
@@ -223,6 +238,10 @@ def player_loop():
                     started_at = time.time()
         except Exception as e:
             log_err(f"speaker: {e}")
+
+
+def secs(t):
+    return sum(int(x) * 60 ** i for i, x in enumerate(reversed((t or "0").split(":")))) if t and t[0].isdigit() else 0
 
 
 def need_speaker():
@@ -380,7 +399,8 @@ def skip():
     global started_at
     if err := need_speaker():
         return err
-    started_at = 0
+    global skipped
+    started_at, skipped = 0, True
     speaker.stop()  # loop sees STOPPED and advances
     return "", 204
 

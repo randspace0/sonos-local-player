@@ -3,7 +3,7 @@
 ```
 guest browser ──HTTP──▶ server.py (Flask) ──UPnP/SOAP :1400──▶ Sonos speaker
                             │                                      │
-                            ├─ yt-dlp: download AAC to cache/      │
+                            ├─ yt-dlp: download AAC to data/<port>/cache │
                             └─ GET /f/<file>  ◀── speaker pulls ───┘
 ```
 
@@ -15,6 +15,8 @@ Everything is one process: `server.py`. The page in `static/index.html` is plain
 2. The thread runs yt-dlp (`-f 140/bestaudio[ext=m4a]`, AAC in an m4a file, the format Sonos plays) and writes `cache/<id>.m4a`. The item becomes `ready`, or `error` with a reason.
 3. `player_loop` runs every 2 seconds. When the speaker's transport state is `STOPPED` (a track ended) or nothing has started yet, it takes the first `ready` item, sets it as `current`, and calls `play_uri("http://<host-ip>:<port>/f/<file>")`. The speaker then downloads the file from this server. Pausing gives `PAUSED_PLAYBACK`, so a pause is never mistaken for a track ending.
 4. The finished song's file is deleted.
+
+A stop is only treated as "finished" if the last poll saw the song within 8 seconds of its end, or a guest pressed Skip. Anything else is logged as `speaker stopped '<song>' early`, because it usually means the speaker couldn't fetch or play the file. A queued file that has gone missing from disk is logged and skipped without calling the speaker.
 
 The loop also refreshes a snapshot (playing, position, duration, volume). `GET /api/state` only reads that snapshot, so any number of phones polling every 2 seconds adds no traffic to the speaker.
 
@@ -39,12 +41,12 @@ There is no authentication. Treat the port as LAN-only.
 
 ## Persistence
 
-`state.json` holds the queue, the song that was playing, the speaker IP, the autoplay switch and the recently-played list. It is rewritten (temp file, then rename) after every change. `cache/` holds the audio files.
+`data/<port>/state.json` holds the queue, the song that was playing, the speaker IP, the autoplay switch and the recently-played list. It is rewritten (temp file, then rename) after every change. `cache/` holds the audio files.
 
 On startup `restore()`:
 - puts the song that was playing back at the front of the queue (it restarts from 0:00),
 - re-queues songs whose file still exists, and restarts downloads that were unfinished,
-- deletes files in `cache/` that nothing refers to,
+- deletes files in `data/<port>/cache/` that nothing refers to,
 - reconnects to the saved speaker, or logs an error if it is unreachable.
 
 ## Files
@@ -54,4 +56,4 @@ On startup `restore()`:
 | `server.py` | API, downloads, playback loop, persistence |
 | `static/index.html` | The whole UI |
 | `static/pico.min.css` | Pico CSS 2.1.1 (MIT), vendored |
-| `state.json`, `cache/` | Runtime data, git-ignored |
+| `data/<port>/` | `state.json` and `cache/`, one folder per port so two servers never share files; git-ignored |

@@ -30,8 +30,12 @@ The **Error log** at the bottom of the page lists recent failures with timestamp
 | No thumbnails | They load from YouTube's image server, so the phone needs internet access. A music-note placeholder is shown instead. |
 | Volume bar jumps back | The page ignores server volume for about 1.5 seconds after you change it; if it keeps reverting, someone else is changing it. |
 
+## Songs skip by themselves
+
+The player treats "the speaker stopped" as "the song finished" and moves on. If the speaker can't play a file, that looks the same, so the queue can drain quickly. The Error log now says `speaker stopped '<song>' early (Ns of Ms)` or `file for '<song>' is missing` when this happens. Usual causes: the host firewall blocks the port (see Setup), the PC's IP changed since the speaker was chosen (take over the speaker again), or two servers were sharing one `cache/` folder (each port now has its own `data/<port>/`).
+
 ## Data
 
-- To start clean, stop the server, delete `state.json` and `cache/`, and start again.
+- To start clean, stop the server, delete `data/<port>/` (e.g. `data/8000/`), and start again.
 - If the server was killed while a song was playing, that song returns at the front of the queue and starts from the beginning.
 - Port already in use: `PORT=9000 uv run server.py`.

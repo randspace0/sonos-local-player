@@ -44,7 +44,7 @@ Allow inbound TCP on the port in the host firewall: the speaker downloads each t
 - Spotify playlists and albums are not supported.
 - Downloading from YouTube may violate its terms of service; use it for music you're entitled to play, at your own risk.
 - Live streams are rejected (they never finish downloading).
-- The queue, chosen speaker and autoplay setting are saved to `state.json` and `cache/` and restored on restart; the song that was playing starts again from the beginning.
+- The queue, chosen speaker and autoplay setting are saved under `data/<port>/` (`state.json` and `cache/`) and restored on restart; the song that was playing starts again from the beginning.
 
 ## Docs
 

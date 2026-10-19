@@ -78,4 +78,4 @@ All of these return `409 no speaker: …` until the host has picked a speaker.
 | `status` | `loading`, `ready`, or `error` |
 | `error` | Short reason, only when `status` is `error` |
 | `q` | The original text or link (used to retry after a restart) |
-| `file` | File name in `cache/`, once downloaded |
+| `file` | File name in `data/<port>/cache/`, once downloaded |
