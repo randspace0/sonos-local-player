@@ -48,10 +48,10 @@ There is no authentication. Treat the port as LAN-only.
 `data/<port>/state.json` holds the queue, the song that was playing, the speaker IP, the autoplay switch and the recently-played list. It is rewritten (temp file, then rename) after every change. `cache/` holds the audio files.
 
 On startup `restore()`:
-- puts the song that was playing back at the front of the queue (it restarts from 0:00),
+- reconnects to the saved speaker, or logs an error if it is unreachable,
+- checks what the speaker is doing: if it is still playing or paused on the saved current song's file, that song stays "now playing" (the speaker keeps going while the server is down). Otherwise the song goes back to the front of the queue and plays again from 0:00,
 - re-queues songs whose file still exists, and restarts downloads that were unfinished,
-- deletes files in `data/<port>/cache/` that nothing refers to,
-- reconnects to the saved speaker, or logs an error if it is unreachable.
+- deletes files in `data/<port>/cache/` that nothing refers to.
 
 ## Files
 

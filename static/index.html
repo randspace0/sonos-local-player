@@ -515,7 +515,7 @@ async function ensureLyrics() {
     lyr.lines = r.synced
     lyrBox.replaceChildren(...r.synced.map(l => h('p', {}, l.text || '\u266a')))
     syncLyrics(true)
-  } else lyrBox.replaceChildren(r.plain ? h('pre', {}, r.plain) : h('p', {}, 'No lyrics found for this song.'))
+  } else lyrBox.replaceChildren(r.plain ? h('pre', {}, r.plain) : h('p', {}, 'Not available'))
 }
 
 function syncLyrics(force) { // highlight the line being sung and keep it in view

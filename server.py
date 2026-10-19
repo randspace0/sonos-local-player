@@ -64,8 +64,13 @@ def save():
 
 
 def restore():
-    """Reload the saved queue. The song that was playing goes back to the front; unfinished downloads restart."""
-    global autoplay, last_vid
+    """Reload the saved queue and re-attach to the song the speaker is still playing.
+
+    The speaker keeps playing after the server restarts, so if it is still on the saved current song
+    that song stays "now playing". Otherwise it goes back to the front of the queue.
+    Unfinished downloads restart.
+    """
+    global autoplay, last_vid, current
     try:
         with open(STATE) as f:
             d = json.load(f)
@@ -73,23 +78,41 @@ def restore():
         return
     autoplay, last_vid = bool(d.get("autoplay", True)), d.get("last_vid")
     recent.extend(d.get("recent") or [])
-    for it in [d.get("current"), *d.get("queue", [])]:
+    on_disk = lambda it: it.get("file") and os.path.exists(os.path.join(CACHE, it["file"]))
+    for it in d.get("queue", []):
         if not isinstance(it, dict):
             continue
-        if it.get("status") == "ready" and it.get("file") and os.path.exists(os.path.join(CACHE, it["file"])):
+        if it.get("status") == "ready" and on_disk(it):
             queue.append(it)
         elif it.get("status") == "loading" and it.get("q"):
             queue.append(it)
             threading.Thread(target=fetch, args=(it, it["q"]), daemon=True).start()
-    keep = {i["file"] for i in queue if i.get("file")}
-    for f in os.listdir(CACHE):  # downloads nothing refers to any more
-        if f not in keep:
-            os.remove(os.path.join(CACHE, f))
     if d.get("speaker_ip"):
         try:
             use_speaker(d["speaker_ip"])
         except Exception as e:
             log_err(f"saved speaker {d['speaker_ip']} unreachable, pick one in the UI: {e}")
+    cur = d.get("current")
+    if isinstance(cur, dict) and cur.get("status") == "ready" and on_disk(cur):
+        if speaker_still_on(cur):
+            current = cur
+        else:
+            queue.insert(0, cur)  # the speaker stopped meanwhile: play it again
+    keep = {i["file"] for i in [*queue, current] if i and i.get("file")}
+    for f in os.listdir(CACHE):  # downloads nothing refers to any more
+        if f not in keep:
+            os.remove(os.path.join(CACHE, f))
+    save()
+
+
+def speaker_still_on(item):
+    """True if the speaker is playing or paused on this song's file."""
+    try:
+        state = speaker.get_current_transport_info()["current_transport_state"]
+        uri = speaker.get_current_track_info().get("uri") or ""
+        return state in ("PLAYING", "PAUSED_PLAYBACK", "TRANSITIONING") and item["file"] in uri
+    except Exception:
+        return False  # no speaker, or unreachable
 
 
 def local_ip(target="192.0.2.1"):

@@ -38,12 +38,12 @@ The player treats "the speaker stopped" as "the song finished" and moves on. If 
 
 | Symptom | Cause and fix |
 |---|---|
-| "No lyrics found for this song" | LRCLIB has no match within 8 seconds of the song's length. Covers, live versions and remixes often have none. |
+| "Not available" | LRCLIB has no match within 8 seconds of the song's length. Covers, live versions and remixes often have none. |
 | "Couldn't reach the lyrics service" | LRCLIB is down or rate-limiting. Press Try again. |
 | Highlighted line is slightly early or late | The synced timing comes from LRCLIB for a recording that can differ by a second or two from the YouTube version. |
 
 ## Data
 
 - To start clean, stop the server, delete `data/<port>/` (e.g. `data/8000/`), and start again.
-- If the server was killed while a song was playing, that song returns at the front of the queue and starts from the beginning.
+- If the server restarts while a song is playing, the song stays "now playing" as long as the speaker is still on it. If the speaker had stopped, the song returns to the front of the queue and starts again.
 - Port already in use: `PORT=9000 uv run server.py`.
