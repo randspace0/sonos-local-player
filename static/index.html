@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="/static/pico.min.css">
+<title>Sonos Queue</title>
+<style>
+  img.t { width: 64px; height: 36px; object-fit: cover; border-radius: 4px; flex: none }
+  img.big { width: 100%; max-width: 320px; height: auto; aspect-ratio: 16/9; display: block; margin-bottom: .5rem }
+  ul.rows { list-style: none; padding: 0 }
+  ul.rows li { display: flex; align-items: center; gap: .75rem; padding: .35rem 0 }
+  ul.rows .meta { flex: 1; min-width: 0; overflow-wrap: anywhere }
+  ul.rows button { width: auto; margin: 0; padding: .35rem .7rem; font-size: .85rem }
+  .acts { display: flex; gap: .3rem; flex: none }
+  output { display: flex; align-items: center; justify-content: center; min-width: 4.5rem }
+  #status { position: fixed; left: 1rem; right: 1rem; bottom: 1rem; margin: 0; padding: .6rem 1rem; border-radius: 6px;
+            background: var(--pico-primary-background); color: var(--pico-primary-inverse); text-align: center }
+  #status.err { background: var(--pico-del-color) }
+  #status:empty { display: none }
+</style>
+</head>
+<body>
+<main class="container">
+  <p id="status" role="status" aria-live="polite"></p>
+
+  <details id="speakerBox" hidden>
+    <summary id="active">Speaker</summary>
+    <div role="group">
+      <select id="spk" aria-label="Speaker"><option value="">none</option></select>
+      <button id="scan" class="secondary" type="button">Scan</button>
+      <button id="take" type="button">Take over</button>
+    </div>
+  </details>
+  <p id="nospk" hidden><small>Waiting for the host to pick a speaker.</small></p>
+
+  <article>
+    <header>Now playing</header>
+    <img id="art" class="big" alt="" hidden>
+    <div id="now">Nothing playing</div>
+    <progress id="bar" aria-label="Track progress" value="0" max="1"></progress>
+    <small id="time"></small>
+    <footer>
+      <div role="group">
+        <button id="pp" type="button">Play</button>
+        <button id="skip" class="secondary" type="button">Skip</button>
+      </div>
+      <div role="group">
+        <button id="vdn" class="secondary" type="button" aria-label="Volume down">&minus;</button>
+        <output id="volnum" for="vol">0%</output>
+        <button id="vup" class="secondary" type="button" aria-label="Volume up">+</button>
+      </div>
+      <input id="vol" type="range" min="0" max="100" aria-label="Volume">
+    </footer>
+  </article>
+
+  <form id="form">
+    <input id="name" placeholder="Your name (optional, shown next to what you add)" maxlength="30" autocomplete="nickname">
+    <fieldset role="group">
+      <input id="q" type="search" placeholder="Search YouTube Music, or paste a link" autocomplete="off" aria-label="Search">
+      <button>Add</button>
+    </fieldset>
+  </form>
+  <ul id="results" class="rows" aria-label="Search results"></ul>
+
+  <h2>Queue</h2>
+  <ul id="list" class="rows"></ul>
+</main>
+
+<script>
+const $ = id => document.getElementById(id)
+// DOM builder: all text goes through textContent, so nothing a guest sends can inject markup.
+const h = (tag, props = {}, ...kids) => {
+  const e = document.createElement(tag)
+  for (const [k, v] of Object.entries(props)) k.includes('-') ? e.setAttribute(k, v) : (e[k] = v)
+  e.append(...kids.filter(k => k != null && k !== false))
+  return e
+}
+const sec = t => (t || '').split(':').reduce((a, x) => a * 60 + (+x || 0), 0)
+const fmt = n => Math.floor(n / 60) + ':' + String(Math.floor(n % 60)).padStart(2, '0')
+const thumb = (v, cls = 't') => v && h('img', {
+  className: cls, alt: '', loading: 'lazy', src: `https://i.ytimg.com/vi/${encodeURIComponent(v)}/mqdefault.jpg`,
+  onerror() { this.hidden = true }, // offline / blocked: drop the broken image
+})
+const store = { get: k => { try { return localStorage.getItem(k) || '' } catch { return '' } },
+                set: (k, v) => { try { localStorage.setItem(k, v) } catch {} } }
+
+let toastTimer
+function say(msg, bad) {
+  $('status').textContent = msg
+  $('status').className = bad ? 'err' : ''
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => $('status').textContent = '', 4000)
+}
+
+async function api(path, body, method = 'POST') {
+  try {
+    const r = await fetch('/api/' + path, { method, headers: { 'content-type': 'application/json' },
+                                            body: body ? JSON.stringify(body) : undefined })
+    if (!r.ok) {
+      const t = await r.text()
+      say(t && t.length < 120 ? t : r.statusText, true)
+      return null
+    }
+    return r.status === 204 ? true : await r.json()
+  } catch { say('Server unreachable', true); return null }
+}
+
+// ---- state ----
+let lastQueue = '', queued = new Set(), pos = 0, dur = 0, playing = false, stamp = 0, volLock = 0, hasSpeaker = false, hasTrack = false
+
+async function load() {
+  const s = await api('state', null, 'GET')
+  if (!s) return
+  hasSpeaker = !!s.speaker
+  $('speakerBox').hidden = !s.host
+  $('nospk').hidden = s.host || hasSpeaker
+  $('active').textContent = s.speaker ? 'Speaker: ' + s.speaker.name : 'No speaker taken over yet'
+  for (const id of ['pp', 'skip', 'vdn', 'vup', 'vol']) $(id).disabled = !hasSpeaker
+  if (s.host && !hasSpeaker) $('speakerBox').open = true
+
+  const c = s.current
+  hasTrack = !!c
+  $('now').textContent = c ? c.title + (c.artist ? ' — ' + c.artist : '') : 'Nothing playing'
+  $('art').hidden = !(c && c.vid)
+  if (c && c.vid) {
+    const src = `https://i.ytimg.com/vi/${encodeURIComponent(c.vid)}/mqdefault.jpg`
+    if ($('art').src !== src) $('art').src = src
+  }
+  $('art').onerror = () => $('art').hidden = true
+  $('pp').textContent = s.playing ? 'Pause' : 'Play'
+  $('skip').disabled = !hasSpeaker || !c
+  playing = s.playing; pos = sec(s.position); dur = sec(s.duration); stamp = Date.now()
+  tick()
+
+  if (Date.now() > volLock && document.activeElement !== $('vol')) {
+    $('vol').value = s.volume
+    $('volnum').value = s.volume + '%'
+  }
+
+  queued = new Set([...s.queue, c].filter(Boolean).map(i => i.vid).filter(Boolean))
+  const key = JSON.stringify(s.queue)
+  if (key !== lastQueue) { lastQueue = key; renderQueue(s.queue) } // only redraw on change: no flicker, no lost taps
+}
+
+function renderQueue(items) {
+  $('list').replaceChildren(...(items.length ? items.map((i, n) => h('li', {},
+    thumb(i.vid),
+    h('div', { className: 'meta' },
+      h('div', {}, i.title),
+      h('small', {}, [i.artist, i.dur, i.by && 'added by ' + i.by].filter(Boolean).join(' · ')),
+      i.status === 'loading' && h('small', { 'aria-busy': 'true' }, ' downloading'),
+      i.status === 'error' && h('small', {}, ' failed')),
+    h('div', { className: 'acts' },
+      n > 0 && h('button', { className: 'outline secondary', title: 'Play next', 'aria-label': 'Play next: ' + i.title,
+                             onclick: () => api('move/' + i.id + '/top').then(load) }, 'Next'),
+      n > 0 && h('button', { className: 'outline secondary', 'aria-label': 'Move up: ' + i.title,
+                             onclick: () => api('move/' + i.id + '/up').then(load) }, '↑'),
+      h('button', { className: 'outline secondary', 'aria-label': 'Remove ' + i.title,
+                    onclick: () => api('remove/' + i.id).then(load) }, 'Remove'))))
+    : [h('li', {}, h('small', {}, 'Queue is empty. Search above to add a song.'))]))
+}
+
+// elapsed time ticks every second between polls
+function tick() {
+  const c = hasTrack
+  const p = Math.min(dur || Infinity, pos + (playing ? (Date.now() - stamp) / 1000 : 0))
+  $('bar').max = dur || 1
+  $('bar').value = c && dur ? p : 0
+  $('time').textContent = c && dur ? fmt(p) + ' / ' + fmt(dur) : ''
+}
+
+// ---- controls ----
+$('pp').onclick = () => api('pause').then(load)
+$('skip').onclick = () => api('skip').then(load)
+
+let volTimer
+function setVol(v) {
+  v = Math.max(0, Math.min(100, v))
+  $('vol').value = v
+  $('volnum').value = v + '%'
+  volLock = Date.now() + 1500 // don't let an in-flight poll overwrite what the user just set
+  clearTimeout(volTimer)
+  volTimer = setTimeout(() => api('volume', { v }), 200)
+}
+$('vol').oninput = () => setVol(+$('vol').value)
+function hold(btn, d) { // tap = 1 step, press and hold = repeat
+  let t, i
+  const stop = () => { clearTimeout(t); clearInterval(i) }
+  btn.onpointerdown = () => { setVol(+$('vol').value + d); t = setTimeout(() => i = setInterval(() => setVol(+$('vol').value + d), 80), 400) }
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) btn['on' + ev] = stop
+  btn.onclick = e => { if (e.detail === 0) setVol(+$('vol').value + d) } // keyboard activation only
+}
+hold($('vdn'), -1); hold($('vup'), 1)
+
+// ---- speaker (host only) ----
+$('scan').onclick = async () => {
+  $('scan').setAttribute('aria-busy', 'true')
+  const list = await api('speakers', null, 'GET')
+  $('scan').removeAttribute('aria-busy')
+  if (!list) return
+  if (!list.length) say('No speakers found on this network', true)
+  const sel = $('spk').value
+  $('spk').replaceChildren(h('option', { value: '' }, 'none'), ...list.map(z => h('option', { value: z.ip }, z.name)))
+  $('spk').value = [...$('spk').options].some(o => o.value === sel) ? sel : ''
+}
+$('take').onclick = async () => {
+  if (!$('spk').value) return say('Choose a speaker first', true)
+  if (await api('speaker', { ip: $('spk').value })) say('Now controlling ' + $('spk').selectedOptions[0].text)
+  load()
+}
+
+// ---- search / add ----
+$('name').value = store.get('name')
+$('name').onchange = () => store.set('name', $('name').value.trim())
+const add = async (q, meta = {}) => await api('add', { q, by: $('name').value.trim(), ...meta })
+
+let searchTimer, ctl
+$('q').oninput = () => {
+  clearTimeout(searchTimer); ctl && ctl.abort()
+  $('q').removeAttribute('aria-busy')
+  const v = $('q').value.trim()
+  if (!v || /^https?:/.test(v)) return $('results').replaceChildren()
+  searchTimer = setTimeout(async () => {
+    ctl = new AbortController()
+    $('q').setAttribute('aria-busy', 'true')
+    try {
+      const r = await fetch('/api/search?q=' + encodeURIComponent(v), { signal: ctl.signal })
+      if (!r.ok) throw new Error()
+      renderResults(await r.json())
+    } catch (e) { if (e.name !== 'AbortError') say('Search failed, try again', true) }
+    $('q').removeAttribute('aria-busy')
+  }, 400)
+}
+
+function renderResults(items) {
+  $('results').replaceChildren(...(items.length ? items.map(x => {
+    const btn = h('button', { type: 'button', 'aria-label': 'Add ' + x.title, disabled: queued.has(x.vid) }, queued.has(x.vid) ? 'Queued' : 'Add')
+    btn.onclick = async () => {
+      btn.disabled = true
+      if (await add(x.url, { vid: x.vid, artist: x.artist, dur: x.dur })) {
+        btn.textContent = 'Queued'; queued.add(x.vid); say('Added: ' + x.title); load()
+      } else btn.disabled = false
+    }
+    return h('li', {}, thumb(x.vid),
+      h('div', { className: 'meta' }, h('div', {}, x.title), h('small', {}, x.artist + ' · ' + x.dur)), btn)
+  }) : [h('li', {}, h('small', {}, 'No results'))]))
+}
+
+$('form').onsubmit = async e => {
+  e.preventDefault()
+  const v = $('q').value.trim()
+  if (!v) return
+  if (await add(v)) { say('Added: ' + v); $('q').value = ''; $('results').replaceChildren(); load() }
+}
+
+setInterval(load, 2000)
+setInterval(tick, 1000)
+load()
+</script>
+</body>
+</html>
