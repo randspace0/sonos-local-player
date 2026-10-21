@@ -241,7 +241,7 @@
       <p id="by">Add a song below to get started</p>
     </div>
     <div class="scrub">
-      <progress id="bar" aria-label="Track progress" value="0" max="1"></progress>
+      <input id="bar" type="range" aria-label="Track progress" value="0" min="0" max="1" step="any">
       <div class="times"><span id="elapsed">0:00</span><span id="total">0:00</span></div>
     </div>
     <div class="transport">
@@ -255,11 +255,6 @@
         <input id="vol" type="range" min="0" max="100" value="0">
         <button id="vup" class="icon" type="button" aria-label="Volume up"><svg class="ic"><use href="#i-plus"/></svg></button>
       </div>
-    </div>
-    <div class="vol">
-      <div class="vol-head"><label for="pan">Pan</label><output id="pannum" for="pan">Center</output></div>
-      <div class="vol-row"><span class="muted">L</span><input id="pan" type="range" min="-100" max="100" step="5" value="0" list="pantick"><span class="muted">R</span></div>
-      <datalist id="pantick"><option value="0"></option></datalist>
     </div>
     <details id="lyrics" class="lyr">
       <summary>Lyrics</summary>
@@ -379,8 +374,7 @@ async function api(path, body, method = 'POST') {
 
 // ---- state ----
 let lastQueue = '', queued = new Set(), pos = 0, dur = 0, playing = false, stamp = 0, volLock = 0
-let panLock = 0
-let curItem = null, curPos = 0
+let curItem = null, curPos = 0, seekLock = 0
 let dragging = false, hasSpeaker = false, hasTrack = false, asked = false
 
 async function load() {
@@ -394,7 +388,7 @@ async function load() {
   $('dot').className = 'dot' + (hasSpeaker ? ' on' : '')
   $('nospk').hidden = s.host || hasSpeaker
   if (s.host && !hasSpeaker && !asked) { asked = true; $('spkDlg').showModal() }
-  for (const id of ['pp', 'vdn', 'vup', 'vol', 'pan']) $(id).disabled = !hasSpeaker
+  for (const id of ['pp', 'vdn', 'vup', 'vol', 'bar']) $(id).disabled = !hasSpeaker
 
   const c = s.current
   hasTrack = !!c
@@ -418,7 +412,6 @@ async function load() {
     $('volnum').value = s.volume + '%'
   }
 
-  if (Date.now() > panLock && document.activeElement !== $('pan')) showPan(s.pan)
 
   if (document.activeElement !== $('quality')) $('quality').value = s.quality
   if (document.activeElement !== $('auto')) $('auto').checked = s.autoplay
@@ -504,7 +497,7 @@ function startDrag(e, id) {
 function tick() {
   const p = Math.min(dur || Infinity, pos + (playing ? (Date.now() - stamp) / 1000 : 0))
   $('bar').max = dur || 1
-  $('bar').value = hasTrack && dur ? p : 0
+  if (Date.now() > seekLock && document.activeElement !== $('bar')) $('bar').value = hasTrack && dur ? p : 0
   curPos = hasTrack && dur ? p : 0
   syncLyrics()
   $('elapsed').textContent = hasTrack && dur ? fmt(p) : '0:00'
@@ -590,16 +583,12 @@ function hold(btn, d) { // tap = 1 step, press and hold = repeat
   for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) btn['on' + ev] = stop
   btn.onclick = e => { if (e.detail === 0) setVol(+$('vol').value + d) } // keyboard activation only
 }
-const showPan = v => { $('pan').value = v; $('pannum').value = v === 0 ? 'Center' : Math.abs(v) + '% ' + (v < 0 ? 'left' : 'right') }
-let panTimer
-$('pan').oninput = () => {
-  const v = +$('pan').value
-  showPan(v)
-  panLock = Date.now() + 1500
-  clearTimeout(panTimer)
-  panTimer = setTimeout(() => api('pan', { v }), 200)
+$('bar').onchange = async () => { // fires on release, not while dragging
+  seekLock = Date.now() + 1500 // don't let an in-flight poll snap the thumb back
+  pos = +$('bar').value; stamp = Date.now()
+  $('bar').blur()
+  await api('seek', { v: Math.floor(pos) })
 }
-$('pan').ondblclick = () => { $('pan').value = 0; $('pan').oninput() }
 hold($('vdn'), -1); hold($('vup'), 1)
 
 $('quality').onchange = () => api('quality', { q: $('quality').value })

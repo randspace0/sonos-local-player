@@ -19,8 +19,6 @@ p.pause()
 assert p.get_current_transport_info()["current_transport_state"] == "PAUSED_PLAYBACK"
 p.play(); p.volume = 30
 assert p._cmd("get_property", "volume") == 30
-p.pan = -50
-assert "c1=0.5*c1" in p._cmd("get_property", "af")[0]["params"]["graph"], p._cmd("get_property", "af")
 p.stop()
 assert p.get_current_transport_info()["current_transport_state"] == "STOPPED"
 shutil.rmtree(server.DATA)
