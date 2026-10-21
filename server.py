@@ -43,7 +43,7 @@ auto_pending = False
 last_vid = None          # last song that started playing: the seed for autoplay
 recent = deque(maxlen=40)  # recently played video ids, so autoplay doesn't repeat itself
 errors = deque(maxlen=50)  # newest first; shown in the log panel at the bottom of the page
-snap = {"playing": False, "position": None, "duration": None, "volume": 0}  # refreshed by player_loop
+snap = {"playing": False, "position": None, "duration": None, "volume": 0, "pan": 0}  # pan -100 (left) .. 100 (right); refreshed by player_loop
 app = Flask(__name__, static_folder=os.path.join(ROOT, "static"), static_url_path="/static")
 
 
@@ -127,7 +127,7 @@ class LocalPlayer:
     def __init__(self, sink="", name="This computer"):
         self.sink, self.player_name, self.ip_address = sink, name, "local:" + sink
         self.sock = os.path.join(DATA, "mpv.sock")
-        self.proc, self.uri, self._vol = None, "", 100
+        self.proc, self.uri, self._vol, self._pan = None, "", 100, 0
 
     def _alive(self):
         return self.proc is not None and self.proc.poll() is None
@@ -146,7 +146,7 @@ class LocalPlayer:
 
     def play_uri(self, uri, title=""):
         self.stop()
-        cmd = ["mpv", "--no-video", "--no-terminal", f"--input-ipc-server={self.sock}", f"--volume={self._vol}"]
+        cmd = ["mpv", "--no-video", "--no-terminal", f"--input-ipc-server={self.sock}", f"--volume={self._vol}", f"--af={self._af()}"]
         if self.sink:
             cmd.append(f"--audio-device=pulse/{self.sink}")
         self.proc, self.uri = subprocess.Popen(cmd + [uri]), uri
@@ -154,6 +154,20 @@ class LocalPlayer:
             if os.path.exists(self.sock):
                 break
             time.sleep(0.1)
+
+    def _af(self):
+        l, r = min(1, 1 - self._pan / 100), min(1, 1 + self._pan / 100)  # pan quietens the far channel
+        return f"lavfi=[pan=stereo|c0={l:g}*c0|c1={r:g}*c1]"
+
+    @property
+    def pan(self):
+        return self._pan
+
+    @pan.setter
+    def pan(self, v):
+        self._pan = v
+        if self._alive():
+            self._cmd("set_property", "af", self._af())
 
     def stop(self):
         if self._alive():
@@ -193,6 +207,14 @@ class LocalPlayer:
             self._cmd("set_property", "volume", v)
 
 
+def set_pan(sp, v):
+    if isinstance(sp, LocalPlayer):
+        sp.pan = v
+    else:  # Sonos balance is a left/right volume pair, 0-100 each
+        sp.balance = (min(100, 100 - v), min(100, 100 + v))
+    snap["pan"] = v
+
+
 def sinks():
     out = subprocess.run(["pactl", "-f", "json", "list", "sinks"], capture_output=True, text=True, timeout=5)
     return [{"name": s["name"], "desc": s["description"]} for s in json.loads(out.stdout)]
@@ -223,6 +245,10 @@ def use_speaker(ip):
     if isinstance(speaker, LocalPlayer) and speaker is not sp:
         speaker.stop()
     HOST, speaker = host, sp
+    try:
+        set_pan(sp, snap["pan"])  # keep the chosen pan on the new speaker
+    except Exception as e:
+        log_err(f"could not set pan: {e}")
     save()
 
 
@@ -640,6 +666,18 @@ def set_quality():
         return "bad quality", 400
     quality = q
     save()
+    return "", 204
+
+
+@app.post("/api/pan")
+def pan():
+    if err := need_speaker():
+        return err
+    try:
+        v = max(-100, min(100, int((request.get_json(silent=True) or {})["v"])))
+    except (KeyError, TypeError, ValueError):
+        return "bad pan", 400
+    set_pan(speaker, v)
     return "", 204
 
 

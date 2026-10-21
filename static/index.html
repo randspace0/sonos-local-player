@@ -6,6 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0F0F23" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F5F6FB" media="(prefers-color-scheme: light)">
+<script>try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t } catch {}</script>
 <link rel="stylesheet" href="/static/pico.min.css">
 <title>Sonos Queue</title>
 <style>
@@ -30,12 +31,18 @@
     --pico-card-background-color: var(--surface); --pico-modal-overlay-background-color: rgb(0 0 0 / .55);
   }
   @media (prefers-color-scheme: dark) {
-    :root:root {
+    :root:root:not([data-theme=light]) {
       --bg: #0F0F23; --surface: #17172F; --surface-2: #232344; --border: #34345A;
       --text: #F1F5F9; --muted: #A9ACCB;
       --accent: #22C55E; --on-accent: #052E16; --danger: #F87171;
       --shadow: 0 1px 2px rgb(0 0 0 / .5), 0 8px 24px rgb(0 0 0 / .35);
     }
+  }
+  :root:root[data-theme=dark] {
+      --bg: #0F0F23; --surface: #17172F; --surface-2: #232344; --border: #34345A;
+      --text: #F1F5F9; --muted: #A9ACCB;
+      --accent: #22C55E; --on-accent: #052E16; --danger: #F87171;
+      --shadow: 0 1px 2px rgb(0 0 0 / .5), 0 8px 24px rgb(0 0 0 / .35);
   }
   html { background: var(--bg) }
   body { margin: 0; color: var(--text); font-size: 1rem; line-height: 1.5 }
@@ -58,6 +65,7 @@
   .icon { padding: 0 }
   .btn:active, .icon:active, .chip:active, .play:active { transform: scale(.94) }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent) }
+  :root[data-theme=dark] { color-scheme: dark } :root[data-theme=light] { color-scheme: light }
   .icon.danger { color: var(--danger) }
   :is(button, a, input, select, summary):focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; box-shadow: none }
   button:disabled, button[aria-disabled=true] { opacity: .45; cursor: not-allowed; transform: none }
@@ -65,7 +73,7 @@
   /* header */
   header.top { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between;
     gap: .75rem; padding: calc(.75rem + env(safe-area-inset-top)) 0 .75rem; background: var(--bg) }
-  header.top h1 { font-size: 1.25rem }
+  header.top h1 { font-size: 1.25rem; margin-right: auto }
   .chip { min-width: 0; max-width: 60%; padding: 0 .9rem; font-weight: 500; font-size: .9rem }
   .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
   .chip:disabled { opacity: 1; cursor: default; background: transparent; border-color: transparent; padding: 0 }
@@ -172,6 +180,8 @@
   .loglist li { display: grid; grid-template-columns: auto 1fr; gap: .75rem; padding: .35rem .6rem; background: var(--surface);
     border: 1px solid var(--border); border-left: 3px solid var(--danger); border-radius: 8px; overflow-wrap: anywhere }
   .loglist time { color: var(--muted); font-variant-numeric: tabular-nums }
+  footer.site { margin-top: 2rem; text-align: center; font-size: .85rem }
+  footer.site a { color: var(--muted); display: inline-flex; align-items: center; min-height: 2.75rem }
   dialog article { max-width: 28rem; width: calc(100vw - 2rem); border-radius: 20px; background: var(--surface); color: var(--text) }
   dialog footer { display: flex; gap: .5rem; justify-content: flex-end }
   dialog header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem }
@@ -205,12 +215,15 @@
   <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
   <symbol id="i-scan" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
   <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2m-7.07-2.93 1.41-1.41m11.32-11.32 1.41-1.41M2 12h2m16 0h2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
 </svg>
 
 <main>
   <header class="top">
     <h1>Sonos Queue</h1>
+    <button id="theme" class="icon" type="button"><svg class="ic"><use href="#i-moon"/></svg></button>
     <button id="chip" class="chip" type="button" aria-haspopup="dialog">
       <span class="dot" id="dot"></span><span id="chipText">No speaker</span>
     </button>
@@ -242,6 +255,11 @@
         <input id="vol" type="range" min="0" max="100" value="0">
         <button id="vup" class="icon" type="button" aria-label="Volume up"><svg class="ic"><use href="#i-plus"/></svg></button>
       </div>
+    </div>
+    <div class="vol">
+      <div class="vol-head"><label for="pan">Pan</label><output id="pannum" for="pan">Center</output></div>
+      <div class="vol-row"><span class="muted">L</span><input id="pan" type="range" min="-100" max="100" step="5" value="0" list="pantick"><span class="muted">R</span></div>
+      <datalist id="pantick"><option value="0"></option></datalist>
     </div>
     <details id="lyrics" class="lyr">
       <summary>Lyrics</summary>
@@ -277,6 +295,7 @@
     <ul id="logList" class="loglist"></ul>
     <p id="logEmpty" class="muted"><small>No errors.</small></p>
   </details>
+  <footer class="site"><a href="https://github.com/randspace0/sonos-local-player" target="_blank" rel="noopener">View on GitHub</a></footer>
 </main>
 
 <dialog id="spkDlg" aria-labelledby="spkh">
@@ -360,6 +379,7 @@ async function api(path, body, method = 'POST') {
 
 // ---- state ----
 let lastQueue = '', queued = new Set(), pos = 0, dur = 0, playing = false, stamp = 0, volLock = 0
+let panLock = 0
 let curItem = null, curPos = 0
 let dragging = false, hasSpeaker = false, hasTrack = false, asked = false
 
@@ -374,7 +394,7 @@ async function load() {
   $('dot').className = 'dot' + (hasSpeaker ? ' on' : '')
   $('nospk').hidden = s.host || hasSpeaker
   if (s.host && !hasSpeaker && !asked) { asked = true; $('spkDlg').showModal() }
-  for (const id of ['pp', 'vdn', 'vup', 'vol']) $(id).disabled = !hasSpeaker
+  for (const id of ['pp', 'vdn', 'vup', 'vol', 'pan']) $(id).disabled = !hasSpeaker
 
   const c = s.current
   hasTrack = !!c
@@ -397,6 +417,8 @@ async function load() {
     $('vol').value = s.volume
     $('volnum').value = s.volume + '%'
   }
+
+  if (Date.now() > panLock && document.activeElement !== $('pan')) showPan(s.pan)
 
   if (document.activeElement !== $('quality')) $('quality').value = s.quality
   if (document.activeElement !== $('auto')) $('auto').checked = s.autoplay
@@ -535,6 +557,18 @@ function syncLyrics(force) { // highlight the line being sung and keep it in vie
   if (Date.now() > lyrPause) lyrBox.scrollTop = el.offsetTop - lyrBox.clientHeight / 2 + el.offsetHeight / 2
 }
 
+// ---- theme: follows the OS until the user picks one ----
+const dark = matchMedia('(prefers-color-scheme: dark)')
+const isDark = () => (document.documentElement.dataset.theme || (dark.matches ? 'dark' : 'light')) === 'dark'
+function showTheme() {
+  const d = isDark()
+  $('theme').setAttribute('aria-label', d ? 'Switch to light mode' : 'Switch to dark mode')
+  $('theme').querySelector('use').setAttribute('href', d ? '#i-sun' : '#i-moon')
+}
+$('theme').onclick = () => { const t = isDark() ? 'light' : 'dark'; document.documentElement.dataset.theme = t; store.set('theme', t); showTheme() }
+dark.onchange = showTheme
+showTheme()
+
 // ---- controls ----
 $('pp').onclick = () => api('pause').then(load)
 $('skip').onclick = () => api('skip').then(load)
@@ -556,6 +590,16 @@ function hold(btn, d) { // tap = 1 step, press and hold = repeat
   for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) btn['on' + ev] = stop
   btn.onclick = e => { if (e.detail === 0) setVol(+$('vol').value + d) } // keyboard activation only
 }
+const showPan = v => { $('pan').value = v; $('pannum').value = v === 0 ? 'Center' : Math.abs(v) + '% ' + (v < 0 ? 'left' : 'right') }
+let panTimer
+$('pan').oninput = () => {
+  const v = +$('pan').value
+  showPan(v)
+  panLock = Date.now() + 1500
+  clearTimeout(panTimer)
+  panTimer = setTimeout(() => api('pan', { v }), 200)
+}
+$('pan').ondblclick = () => { $('pan').value = 0; $('pan').oninput() }
 hold($('vdn'), -1); hold($('vup'), 1)
 
 $('quality').onchange = () => api('quality', { q: $('quality').value })
