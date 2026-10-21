@@ -639,7 +639,9 @@ def seek():
         v = max(0, int((request.get_json(silent=True) or {})["v"]))
     except (KeyError, TypeError, ValueError):
         return "bad seek", 400
-    speaker.seek(f"{v // 3600}:{v // 60 % 60:02d}:{v % 60:02d}")
+    hms = f"{v // 3600}:{v // 60 % 60:02d}:{v % 60:02d}"
+    speaker.seek(hms)
+    snap["position"] = hms  # guests poll the snapshot; without this they see the old position until player_loop refreshes it
     return "", 204
 
 

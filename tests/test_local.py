@@ -17,6 +17,11 @@ assert p.get_current_transport_info()["current_transport_state"] == "PLAYING"
 assert p.get_current_track_info()["duration"] == "0:00:20", p.get_current_track_info()
 p.pause()
 assert p.get_current_transport_info()["current_transport_state"] == "PAUSED_PLAYBACK"
+server.speaker = p
+assert server.app.test_client().post("/api/seek", json={"v": 12}).status_code == 204
+assert server.snap["position"] == "0:00:12", server.snap  # guests poll the snapshot, so seek must update it
+time.sleep(0.5)
+assert server.secs(p.get_current_track_info()["position"]) >= 11, p.get_current_track_info()  # mpv truncates 11.99s
 p.play(); p.volume = 30
 assert p._cmd("get_property", "volume") == 30
 p.stop()
