@@ -180,6 +180,8 @@
   .loglist li { display: grid; grid-template-columns: auto 1fr; gap: .75rem; padding: .35rem .6rem; background: var(--surface);
     border: 1px solid var(--border); border-left: 3px solid var(--danger); border-radius: 8px; overflow-wrap: anywhere }
   .loglist time { color: var(--muted); font-variant-numeric: tabular-nums }
+  footer.site { margin-top: 2rem; text-align: center; font-size: .85rem }
+  footer.site a { color: var(--muted); display: inline-flex; align-items: center; min-height: 2.75rem }
   dialog article { max-width: 28rem; width: calc(100vw - 2rem); border-radius: 20px; background: var(--surface); color: var(--text) }
   dialog footer { display: flex; gap: .5rem; justify-content: flex-end }
   dialog header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem }
@@ -285,6 +287,7 @@
     <ul id="logList" class="loglist"></ul>
     <p id="logEmpty" class="muted"><small>No errors.</small></p>
   </details>
+  <footer class="site"><a href="https://github.com/randspace0/sonos-local-player" target="_blank" rel="noopener">View on GitHub</a></footer>
 </main>
 
 <dialog id="spkDlg" aria-labelledby="spkh">
