@@ -626,7 +626,7 @@ $('q').oninput = () => {
   clearTimeout(searchTimer); ctl && ctl.abort()
   $('q').removeAttribute('aria-busy')
   const v = $('q').value.trim()
-  if (!v || /^https?:/.test(v)) return $('results').replaceChildren()
+  if (!v || /^(https?:|(www\.|m\.|music\.)?(youtube\.com|youtu\.be|open\.spotify\.com)\/)/i.test(v)) return $('results').replaceChildren()
   searchTimer = setTimeout(async () => {
     ctl = new AbortController()
     $('q').setAttribute('aria-busy', 'true')
