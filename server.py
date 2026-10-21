@@ -500,7 +500,7 @@ def search():
         return jsonify([])
     # YouTube Music's own search; one call per filter gives title, artist, duration.
     # ponytail: private API, may change; these params blobs are fixed constants. Songs first, then plain videos.
-    out, seen = [], set()
+    out, seen = [], set()  # up to 8 songs + 8 videos
     for params in ("EgWKAQIIAWoKEAkQBRAKEAMQBA==", "EgWKAQIQAWoKEAkQBRAKEAMQBA=="):  # Songs, Videos
         body = {"context": {"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20240401.01.00", "hl": "en"}},
                 "query": q, "params": params}
@@ -513,6 +513,7 @@ def search():
         except Exception as e:
             log_err(f"search failed for '{q[:40]}': {e}")
             return f"search failed: {e}", 502
+        part = []
         for r in walk(data):
             try:
                 col = lambda i: [x["text"] for x in r["flexColumns"][i]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]]
@@ -521,11 +522,12 @@ def search():
                 if vid in seen:
                     continue
                 seen.add(vid)
-                out.append({"title": col(0)[0], "artist": sub[0], "dur": sub[-1], "vid": vid,
+                part.append({"title": col(0)[0], "artist": sub[0], "dur": sub[-1], "vid": vid,
                             "url": f"https://music.youtube.com/watch?v={vid}"})
             except (KeyError, IndexError):
                 continue  # not a song/video row
-    return jsonify(out[:15])
+        out += part[:8]
+    return jsonify(out)
 
 
 @app.post("/api/add")

@@ -25,7 +25,7 @@ The page polls this every 2 seconds.
 `speaker` is `null` until the host picks one. `position`/`duration` are `null` when nothing is playing. `errors` is newest first, at most 30.
 
 ### `GET /api/search?q=<text>`
-Searches YouTube Music songs, then videos. Returns up to 15 `{ "title", "artist", "dur", "vid", "url" }`. `502` if YouTube can't be reached.
+Searches YouTube Music songs, then videos. Returns up to 16 (8 songs, then 8 videos) `{ "title", "artist", "dur", "vid", "url" }`. `502` if YouTube can't be reached.
 
 ### `GET /api/speakers` (host only)
 Scans the network for about 5 seconds. Returns `[ { "name", "ip" } ]`.
