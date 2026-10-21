@@ -30,6 +30,9 @@ Searches YouTube Music (songs only). Returns up to 10 `{ "title", "artist", "dur
 ### `GET /api/speakers` (host only)
 Scans the network for about 5 seconds. Returns `[ { "name", "ip" } ]`.
 
+### `GET /api/sinks` (host only)
+Audio outputs of the host computer (`pactl`): `[ { "name", "desc" } ]`. Pass `local:<name>` (or `local:` for the default output) as `ip` to `POST /api/speaker` to play on the host computer through mpv.
+
 ### `GET /api/lyrics?id=<song id>`
 Lyrics for a song that is playing or queued: `{ "id", "synced": [ { "t": seconds, "text" } ] | null, "plain": "text" | null }`. Both `null` means LRCLIB has nothing for it. `404` for an unknown id, `502` if LRCLIB can't be reached (not cached).
 

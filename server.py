@@ -7,7 +7,7 @@
 Pipeline: yt-dlp downloads the audio -> we serve the file over HTTP -> Sonos pulls it
 via soco.play_uri. The host manages the speaker at http://localhost:8000.
 """
-import html, json, os, random, re, socket, threading, time, urllib.request, uuid
+import html, json, os, random, re, socket, subprocess, threading, time, urllib.request, uuid
 from collections import OrderedDict, deque
 from urllib.parse import urlencode
 from urllib.parse import urlparse
@@ -115,6 +115,85 @@ def speaker_still_on(item):
         return False  # no speaker, or unreachable
 
 
+class LocalPlayer:
+    """The host computer's audio output (default, or a paired Bluetooth sink) through mpv.
+
+    Mimics the few SoCo calls this file uses, so the rest of the server doesn't care which one it has.
+    """
+    def __init__(self, sink="", name="This computer"):
+        self.sink, self.player_name, self.ip_address = sink, name, "local:" + sink
+        self.sock = os.path.join(DATA, "mpv.sock")
+        self.proc, self.uri, self._vol = None, "", 100
+
+    def _alive(self):
+        return self.proc is not None and self.proc.poll() is None
+
+    def _cmd(self, *args):
+        with socket.socket(socket.AF_UNIX) as s:
+            s.settimeout(2)
+            s.connect(self.sock)
+            s.sendall(json.dumps({"command": list(args)}).encode() + b"\n")
+            for line in s.makefile():  # skip async events until our reply
+                r = json.loads(line)
+                if "error" in r:
+                    if r["error"] != "success":
+                        raise RuntimeError(f"mpv: {r['error']}")
+                    return r.get("data")
+
+    def play_uri(self, uri, title=""):
+        self.stop()
+        cmd = ["mpv", "--no-video", "--no-terminal", f"--input-ipc-server={self.sock}", f"--volume={self._vol}"]
+        if self.sink:
+            cmd.append(f"--audio-device=pulse/{self.sink}")
+        self.proc, self.uri = subprocess.Popen(cmd + [uri]), uri
+        for _ in range(50):  # wait for the control socket
+            if os.path.exists(self.sock):
+                break
+            time.sleep(0.1)
+
+    def stop(self):
+        if self._alive():
+            self.proc.terminate()
+            self.proc.wait()
+        self.proc = None
+
+    def get_current_transport_info(self):
+        if not self._alive():
+            return {"current_transport_state": "STOPPED"}
+        paused = self._cmd("get_property", "pause")
+        return {"current_transport_state": "PAUSED_PLAYBACK" if paused else "PLAYING"}
+
+    def get_current_track_info(self):
+        hms = lambda n: f"{int(n) // 3600}:{int(n) // 60 % 60:02d}:{int(n) % 60:02d}"
+        try:
+            return {"uri": self.uri, "position": hms(self._cmd("get_property", "time-pos") or 0),
+                    "duration": hms(self._cmd("get_property", "duration") or 0)}
+        except (OSError, RuntimeError):
+            return {"uri": self.uri, "position": "0:00:00", "duration": "0:00:00"}  # still loading
+
+    def pause(self):
+        self._cmd("set_property", "pause", True)
+
+    def play(self):
+        if self._alive():
+            self._cmd("set_property", "pause", False)
+
+    @property
+    def volume(self):
+        return self._vol
+
+    @volume.setter
+    def volume(self, v):
+        self._vol = v
+        if self._alive():
+            self._cmd("set_property", "volume", v)
+
+
+def sinks():
+    out = subprocess.run(["pactl", "-f", "json", "list", "sinks"], capture_output=True, text=True, timeout=5)
+    return [{"name": s["name"], "desc": s["description"]} for s in json.loads(out.stdout)]
+
+
 def local_ip(target="192.0.2.1"):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.connect((target, 1400))  # UDP connect sends nothing; it just picks the outgoing interface
@@ -127,10 +206,19 @@ def is_host():
 
 def use_speaker(ip):
     global speaker, HOST
-    sp = soco.SoCo(ip)
-    sp.player_name  # fail fast if unreachable
-    HOST = local_ip(ip)
-    speaker = sp
+    if ip.startswith("local:"):  # "local:<pulse sink name>", empty sink = system default
+        sink = ip[6:]
+        desc = next((s["desc"] for s in sinks() if s["name"] == sink), None) if sink else "This computer"
+        if desc is None:
+            raise ValueError(f"no audio output named {sink}")
+        sp, host = LocalPlayer(sink, desc), "127.0.0.1"
+    else:
+        sp = soco.SoCo(ip)
+        sp.player_name  # fail fast if unreachable
+        host = local_ip(ip)
+    if isinstance(speaker, LocalPlayer) and speaker is not sp:
+        speaker.stop()
+    HOST, speaker = host, sp
     save()
 
 
@@ -364,6 +452,16 @@ def speakers():
         return "host only", 403
     found = soco.discover(timeout=5) or []  # blocks ~5s; threaded server so fine
     return jsonify([{"name": z.player_name, "ip": z.ip_address} for z in found])
+
+
+@app.get("/api/sinks")
+def audio_sinks():
+    if not is_host():
+        return "host only", 403
+    try:
+        return jsonify(sinks())
+    except Exception as e:
+        return f"can't list audio outputs: {e}", 500
 
 
 @app.post("/api/speaker")
