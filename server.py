@@ -28,6 +28,7 @@ DUR = re.compile(r"^\d{1,3}(:\d{2}){1,2}$")
 # m4a only (Sonos can't play webm/opus). YouTube's m4a is 48k (139), 128k (140), 256k (141, Premium only; falls back to 140)
 QUALITY = {"low": "139/worstaudio[ext=m4a]", "standard": "140/bestaudio[ext=m4a]", "high": "141/140/bestaudio[ext=m4a]"}
 quality = "standard"  # applies to songs added from now on
+LINK_NO_SCHEME = re.compile(r"^(www\.|m\.|music\.)?(youtube\.com|youtu\.be|open\.spotify\.com)/", re.I)
 ALLOWED_HOSTS = ("youtube.com", "youtu.be", "open.spotify.com")  # yt-dlp would fetch any URL otherwise
 
 speaker = None  # chosen by the host in the web UI (or SONOS_IP at startup)
@@ -497,30 +498,34 @@ def search():
     q = request.args.get("q", "").strip()[:200]
     if not q:
         return jsonify([])
-    # YouTube Music's own search (songs filter); one call gives title, artist, duration.
-    # ponytail: private API, may change; this "Songs" params blob is a fixed constant.
-    body = {"context": {"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20240401.01.00", "hl": "en"}},
-            "query": q, "params": "EgWKAQIIAWoKEAkQBRAKEAMQBA=="}
-    req = urllib.request.Request("https://music.youtube.com/youtubei/v1/search?prettyPrint=false",
-                                 json.dumps(body).encode(),
-                                 {"content-type": "application/json", "origin": "https://music.youtube.com",
-                                  "User-Agent": "Mozilla/5.0"})
-    try:
-        data = json.load(urllib.request.urlopen(req, timeout=10))
-    except Exception as e:
-        log_err(f"search failed for '{q[:40]}': {e}")
-        return f"search failed: {e}", 502
-    out = []
-    for r in walk(data):
+    # YouTube Music's own search; one call per filter gives title, artist, duration.
+    # ponytail: private API, may change; these params blobs are fixed constants. Songs first, then plain videos.
+    out, seen = [], set()
+    for params in ("EgWKAQIIAWoKEAkQBRAKEAMQBA==", "EgWKAQIQAWoKEAkQBRAKEAMQBA=="):  # Songs, Videos
+        body = {"context": {"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20240401.01.00", "hl": "en"}},
+                "query": q, "params": params}
+        req = urllib.request.Request("https://music.youtube.com/youtubei/v1/search?prettyPrint=false",
+                                     json.dumps(body).encode(),
+                                     {"content-type": "application/json", "origin": "https://music.youtube.com",
+                                      "User-Agent": "Mozilla/5.0"})
         try:
-            col = lambda i: [x["text"] for x in r["flexColumns"][i]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]]
-            sub = "".join(col(1)).split(" • ")  # Artist • Album • 3:34
-            vid = r["playlistItemData"]["videoId"]
-            out.append({"title": col(0)[0], "artist": sub[0], "dur": sub[-1], "vid": vid,
-                        "url": f"https://music.youtube.com/watch?v={vid}"})
-        except (KeyError, IndexError):
-            continue  # not a song row
-    return jsonify(out[:10])
+            data = json.load(urllib.request.urlopen(req, timeout=10))
+        except Exception as e:
+            log_err(f"search failed for '{q[:40]}': {e}")
+            return f"search failed: {e}", 502
+        for r in walk(data):
+            try:
+                col = lambda i: [x["text"] for x in r["flexColumns"][i]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]]
+                sub = "".join(col(1)).split(" • ")  # Artist • Album • 3:34  (videos: Channel • 1M views • 3:34)
+                vid = r["playlistItemData"]["videoId"]
+                if vid in seen:
+                    continue
+                seen.add(vid)
+                out.append({"title": col(0)[0], "artist": sub[0], "dur": sub[-1], "vid": vid,
+                            "url": f"https://music.youtube.com/watch?v={vid}"})
+            except (KeyError, IndexError):
+                continue  # not a song/video row
+    return jsonify(out[:15])
 
 
 @app.post("/api/add")
@@ -529,6 +534,8 @@ def add():
     q = str(j.get("q") or "").strip()[:300]
     if not q:
         return "empty", 400
+    if LINK_NO_SCHEME.match(q):
+        q = "https://" + q  # pasted without the scheme, e.g. "youtu.be/ID" or "www.youtube.com/watch?v=ID"
     if q.startswith(("http://", "https://")):
         host = (urlparse(q).hostname or "").lower()
         if not any(host == h or host.endswith("." + h) for h in ALLOWED_HOSTS):
