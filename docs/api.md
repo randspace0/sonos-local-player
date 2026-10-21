@@ -72,6 +72,7 @@ All of these return `409 no speaker: …` until the host has picked a speaker.
 |---|---|---|
 | `POST /api/speaker` (host only) | `{ "ip": "192.168.1.30" }` | Take over that speaker; `400` if unreachable |
 | `POST /api/autoplay` | `{ "on": true }` | Turn autoplay on or off |
+| `POST /api/quality` | `{ "q": "low", "standard" or "high" }` | Download quality for songs added afterwards (m4a bitrate). `state` returns it as `quality` |
 | `POST /api/log/clear` | none | Empties the server's error log |
 
 ## Item fields

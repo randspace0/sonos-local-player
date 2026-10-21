@@ -25,6 +25,9 @@ os.makedirs(CACHE, exist_ok=True)
 
 VID = re.compile(r"^[\w-]{11}$")
 DUR = re.compile(r"^\d{1,3}(:\d{2}){1,2}$")
+# m4a only (Sonos can't play webm/opus). YouTube's m4a is 48k (139), 128k (140), 256k (141, Premium only; falls back to 140)
+QUALITY = {"low": "139/worstaudio[ext=m4a]", "standard": "140/bestaudio[ext=m4a]", "high": "141/140/bestaudio[ext=m4a]"}
+quality = "standard"  # applies to songs added from now on
 ALLOWED_HOSTS = ("youtube.com", "youtu.be", "open.spotify.com")  # yt-dlp would fetch any URL otherwise
 
 speaker = None  # chosen by the host in the web UI (or SONOS_IP at startup)
@@ -55,7 +58,7 @@ def save():
         with lock:
             data = {"queue": [i for i in queue if i["status"] in ("ready", "loading")], "current": current,
                     "autoplay": autoplay, "speaker_ip": speaker.ip_address if speaker else None,
-                    "last_vid": last_vid, "recent": list(recent)}
+                    "quality": quality, "last_vid": last_vid, "recent": list(recent)}
             with open(STATE + ".tmp", "w") as f:
                 json.dump(data, f)
             os.replace(STATE + ".tmp", STATE)
@@ -70,13 +73,14 @@ def restore():
     that song stays "now playing". Otherwise it goes back to the front of the queue.
     Unfinished downloads restart.
     """
-    global autoplay, last_vid, current
+    global autoplay, last_vid, current, quality
     try:
         with open(STATE) as f:
             d = json.load(f)
     except (OSError, ValueError):
         return
     autoplay, last_vid = bool(d.get("autoplay", True)), d.get("last_vid")
+    quality = d.get("quality") if d.get("quality") in QUALITY else quality
     recent.extend(d.get("recent") or [])
     on_disk = lambda it: it.get("file") and os.path.exists(os.path.join(CACHE, it["file"]))
     for it in d.get("queue", []):
@@ -264,8 +268,7 @@ def fetch(item, query):
             log_err(f"spotify lookup failed for {item['title'][:60]}: {e}")
             return item.update(status="error", error="spotify lookup failed")
         item["title"] = query
-    # AAC/m4a: the Sonos-friendly format (webm/opus is not supported)
-    opts = {"format": "140/bestaudio[ext=m4a]", "outtmpl": f"{CACHE}/{item['id']}.%(ext)s",
+    opts = {"format": QUALITY[quality], "outtmpl": f"{CACHE}/{item['id']}.%(ext)s",
             "noplaylist": True, "quiet": True,
             "match_filter": lambda info, incomplete: "live" if info.get("is_live") else None}  # a live stream never finishes downloading
     if not query.startswith(("http://", "https://")):
@@ -468,7 +471,7 @@ def need_speaker():
 @app.get("/api/state")
 def state():
     sp = speaker
-    return jsonify(current=current, queue=queue, host=is_host(), autoplay=autoplay, errors=list(errors)[:30],
+    return jsonify(current=current, queue=queue, host=is_host(), autoplay=autoplay, quality=quality, errors=list(errors)[:30],
                    speaker=sp and {"name": sp.player_name, "ip": sp.ip_address}, **snap)
 
 
@@ -652,6 +655,17 @@ def volume():
         return "bad volume", 400
     speaker.volume = v
     snap["volume"] = v
+    return "", 204
+
+
+@app.post("/api/quality")
+def set_quality():
+    global quality
+    q = (request.get_json(silent=True) or {}).get("q")
+    if q not in QUALITY:
+        return "bad quality", 400
+    quality = q
+    save()
     return "", 204
 
 
