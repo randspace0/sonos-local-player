@@ -64,6 +64,7 @@ All of these return `409 no speaker: …` until the host has picked a speaker.
 | `POST /api/pause` | none | Toggles play/pause |
 | `POST /api/skip` | none | Stops the current song; the next one starts within ~2 seconds |
 | `POST /api/volume` | `{ "v": 0-100 }` | Sets volume (clamped) |
+| `POST /api/pan` | `{ "v": -100..100 }` | Left/right balance, 0 = centre (clamped). `state` returns it as `pan` |
 
 ## Settings and maintenance
 
