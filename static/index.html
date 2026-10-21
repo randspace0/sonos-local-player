@@ -280,7 +280,7 @@
   <article>
     <header><h2 id="spkh">Speaker</h2>
       <button class="icon" type="button" id="spkClose" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button></header>
-    <label>Choose a speaker on this network
+    <label>Choose a Sonos speaker, or this computer's audio output (a paired Bluetooth speaker shows up here once connected)
       <select id="spk"><option value="">none</option></select>
     </label>
     <p class="muted" style="margin:.5rem 0 1rem"><small>Taking over switches the whole queue to that speaker for everyone.</small></p>
@@ -561,12 +561,14 @@ $('chip').onclick = () => $('spkDlg').showModal()
 $('spkClose').onclick = () => $('spkDlg').close()
 $('scan').onclick = async () => {
   $('scan').setAttribute('aria-busy', 'true'); $('scan').disabled = true
-  const list = await api('speakers', null, 'GET')
+  const [list, outs] = await Promise.all([api('speakers', null, 'GET'), api('sinks', null, 'GET')]) // Sonos + this computer's outputs (incl. paired Bluetooth)
   $('scan').removeAttribute('aria-busy'); $('scan').disabled = false
   if (!list) return
   if (!list.length) say('No speakers found on this network', true)
   const sel = $('spk').value
-  $('spk').replaceChildren(h('option', { value: '' }, 'none'), ...list.map(z => h('option', { value: z.ip }, z.name)))
+  $('spk').replaceChildren(h('option', { value: '' }, 'none'), ...list.map(z => h('option', { value: z.ip }, z.name)),
+    h('option', { value: 'local:' }, 'This computer (default output)'),
+    ...(outs || []).map(o => h('option', { value: 'local:' + o.name }, 'This computer: ' + o.desc)))
   $('spk').value = [...$('spk').options].some(o => o.value === sel) ? sel : ''
 }
 $('take').onclick = async () => {

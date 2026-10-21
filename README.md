@@ -13,7 +13,7 @@ The server talks to the speaker over the LAN with [SoCo](https://github.com/SoCo
 
 ## Run
 
-Needs [uv](https://docs.astral.sh/uv/) (no ffmpeg). Dependencies are
+Needs [uv](https://docs.astral.sh/uv/) (no ffmpeg). To play on the host computer instead of a Sonos you also need `mpv` and `pactl`. Dependencies are
 declared inside `server.py`, so there is nothing to install:
 
 ```bash
@@ -35,6 +35,7 @@ Allow inbound TCP on the port in the host firewall: the speaker downloads each t
 - Lyrics for the current song from [LRCLIB](https://lrclib.net), highlighted line by line when they are time-synced
 - Play/pause, skip, volume (hold the +/- buttons to repeat), live elapsed time
 - Error log at the bottom of the page (download, search and speaker failures, with timestamps) and a Clear log button
+- Output can be a Sonos or the host computer's audio (default output or a paired Bluetooth speaker, via mpv). Pair the Bluetooth device in the OS first, then pick it in the host's Speaker dialog after Scan
 - Only the host (localhost) can scan for or take over a speaker; guests cannot
 
 ## Limits
