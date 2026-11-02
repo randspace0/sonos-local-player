@@ -26,7 +26,8 @@ The **Error log** at the bottom of the page lists recent failures with timestamp
 
 | Symptom | Cause and fix |
 |---|---|
-| Search says "Search failed" | YouTube Music or regular YouTube search failed. The Error log has the reason; the web API or yt-dlp extractor may need an update after YouTube changes. |
+| Search says "Search failed" | Regular YouTube search failed. The Error log has the reason; yt-dlp may need an update after YouTube changes. |
+| Pasted YouTube link has no preview | Check that it points to a video, not a playlist or channel. Unavailable/private videos or videos without oEmbed support may not return preview metadata. |
 | No thumbnails | They load from YouTube's image server, so the phone needs internet access. A music-note placeholder is shown instead. |
 | Volume bar jumps back | The page ignores server volume for about 1.5 seconds after you change it; if it keeps reverting, someone else is changing it. |
 
