@@ -10,7 +10,7 @@ via soco.play_uri. The host manages the speaker at http://localhost:8000.
 import html, json, os, random, re, socket, subprocess, threading, time, urllib.request, uuid
 from collections import OrderedDict, deque
 from urllib.parse import urlencode
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 import soco
 from flask import Flask, jsonify, request, send_from_directory
 from yt_dlp import YoutubeDL
@@ -482,52 +482,41 @@ def pick_speaker():
     return "", 204
 
 
-def walk(o):
-    if isinstance(o, dict):
-        if "musicResponsiveListItemRenderer" in o:
-            yield o["musicResponsiveListItemRenderer"]
-        for v in o.values():
-            yield from walk(v)
-    elif isinstance(o, list):
-        for v in o:
-            yield from walk(v)
-
-
 @app.get("/api/search")
 def search():
     q = request.args.get("q", "").strip()[:200]
     if not q:
         return jsonify([])
-    # Music songs first, then regular YouTube videos.
-    out, seen = [], set()
-    body = {"context": {"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20240401.01.00", "hl": "en"}},
-            "query": q, "params": "EgWKAQIIAWoKEAkQBRAKEAMQBA=="}
-    req = urllib.request.Request("https://music.youtube.com/youtubei/v1/search?prettyPrint=false",
-                                 json.dumps(body).encode(),
-                                 {"content-type": "application/json", "origin": "https://music.youtube.com",
-                                  "User-Agent": "Mozilla/5.0"})
-    try:
-        data = json.load(urllib.request.urlopen(req, timeout=10))
-    except Exception as e:
-        log_err(f"search failed for '{q[:40]}': {e}")
-        return f"search failed: {e}", 502
-    for r in walk(data):
+    link = "https://" + q if LINK_NO_SCHEME.match(q) else q
+    if link.lower().startswith(("http://", "https://")):
         try:
-            col = lambda i: [x["text"] for x in r["flexColumns"][i]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]]
-            sub = "".join(col(1)).split(" • ")  # Artist • Album • 3:34
-            vid = r["playlistItemData"]["videoId"]
-            if vid in seen:
-                continue
-            seen.add(vid)
-            out.append({"title": col(0)[0], "artist": sub[0], "dur": sub[-1], "vid": vid,
-                        "url": f"https://music.youtube.com/watch?v={vid}"})
-            if len(out) == 8:
-                break
-        except (KeyError, IndexError):
-            continue  # not a song row
+            parsed = urlparse(link)
+            host = (parsed.hostname or "").lower()
+            parts = parsed.path.strip("/").split("/")
+            if host in ("youtu.be", "www.youtu.be"):
+                vid = parts[0]
+            elif host == "youtube.com" or host.endswith(".youtube.com"):
+                vid = (parse_qs(parsed.query).get("v") or [""])[0] if parts == ["watch"] else (
+                    parts[1] if len(parts) == 2 and parts[0] in ("shorts", "embed", "live") else "")
+            else:
+                vid = ""
+            if not VID.fullmatch(vid):
+                return "enter a YouTube video URL", 400
+        except ValueError:
+            return "enter a YouTube video URL", 400
+        url = f"https://www.youtube.com/watch?v={vid}"
+        try:
+            metadata = json.load(urllib.request.urlopen(
+                "https://www.youtube.com/oembed?" + urlencode({"url": url, "format": "json"}), timeout=10))
+            return jsonify([{"title": metadata["title"], "artist": metadata["author_name"], "dur": "",
+                             "vid": vid, "url": url}])
+        except Exception as e:
+            log_err(f"YouTube preview failed for {vid}: {e}")
+            return "couldn't load this YouTube video", 502
+    out, seen = [], set()
     try:
         with YoutubeDL({"extract_flat": True, "quiet": True, "socket_timeout": 10}) as y:
-            videos = y.extract_info(f"ytsearch8:{q}", download=False)
+            videos = y.extract_info(f"ytsearch16:{q}", download=False)
         for video in (videos or {}).get("entries") or []:
             if not video or not VID.fullmatch(video.get("id") or ""):
                 continue

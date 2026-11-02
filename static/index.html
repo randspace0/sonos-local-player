@@ -266,11 +266,11 @@
   </article>
 
   <section aria-labelledby="addh">
-    <div class="sec-head"><h2 id="addh">Add a song</h2></div>
-    <form id="form" aria-label="Search songs">
+    <div class="sec-head"><h2 id="addh">Add audio</h2></div>
+    <form id="form" aria-label="Search YouTube videos">
       <div class="search">
         <svg class="ic"><use href="#i-search"/></svg>
-        <input id="q" type="search" enterkeyhint="search" placeholder="Search YouTube songs/videos or paste a link" autocomplete="off" aria-label="Search YouTube songs and videos or paste a link">
+        <input id="q" type="search" enterkeyhint="search" placeholder="Search YouTube videos or paste a link" autocomplete="off" aria-label="Search YouTube videos or paste a link">
       </div>
       <button id="addSong" class="btn primary" type="submit">Add to queue</button>
       <label class="name">Audio quality (for songs you add from now on)
@@ -627,19 +627,26 @@ const add = async (q, meta = {}) => await api('add', { q, by: $('name').value.tr
 
 let searchTimer, ctl
 $('q').oninput = () => {
-  clearTimeout(searchTimer); ctl && ctl.abort()
+  clearTimeout(searchTimer); ctl && ctl.abort(); ctl = null
   $('q').removeAttribute('aria-busy')
+  $('results').replaceChildren()
   const v = $('q').value.trim()
-  if (!v || /^(https?:|(www\.|m\.|music\.)?(youtube\.com|youtu\.be|open\.spotify\.com)\/)/i.test(v)) return $('results').replaceChildren()
+  const youtube = /^(https?:\/\/)?(www\.|m\.|music\.)?(youtube\.com|youtu\.be)\//i.test(v)
+  const link = /^(https?:|(www\.|m\.|music\.)?(youtube\.com|youtu\.be|open\.spotify\.com)\/)/i.test(v)
+  if (!v || (link && !youtube)) return
   searchTimer = setTimeout(async () => {
-    ctl = new AbortController()
+    const controller = new AbortController()
+    ctl = controller
     $('q').setAttribute('aria-busy', 'true')
     try {
-      const r = await fetch('/api/search?q=' + encodeURIComponent(v), { signal: ctl.signal })
-      if (!r.ok) throw new Error()
-      renderResults(await r.json())
-    } catch (e) { if (e.name !== 'AbortError') say('Search failed. Try again.', true) }
-    $('q').removeAttribute('aria-busy')
+      const r = await fetch('/api/search?q=' + encodeURIComponent(v), { signal: controller.signal })
+      if (!r.ok) throw new Error(await r.text())
+      const items = await r.json()
+      if (ctl === controller && $('q').value.trim() === v) renderResults(items)
+    } catch (e) {
+      if (e.name !== 'AbortError' && ctl === controller) say(youtube ? "Couldn't load this YouTube video. Check the link." : 'Search failed. Try again.', true)
+    }
+    if (ctl === controller) $('q').removeAttribute('aria-busy')
   }, 400)
 }
 
@@ -655,8 +662,8 @@ function renderResults(items) {
       } else btn.disabled = false
     }
     return h('li', { className: 'row result' }, thumb(x.vid),
-      h('div', { className: 'meta' }, h('div', { className: 't' }, x.title), h('small', {}, x.artist + ' · ' + x.dur)), btn)
-  }) : [h('li', { className: 'empty' }, icon('search'), h('span', {}, 'No songs found. Try different words, or paste a link.'))]))
+      h('div', { className: 'meta' }, h('div', { className: 't' }, x.title), h('small', {}, [x.artist, x.dur].filter(Boolean).join(' · '))), btn)
+  }) : [h('li', { className: 'empty' }, icon('search'), h('span', {}, 'No videos found. Try different words, or paste a link.'))]))
 }
 
 $('form').onsubmit = async e => {
