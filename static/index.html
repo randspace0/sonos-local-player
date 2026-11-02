@@ -129,6 +129,7 @@
   label.auto input { margin: 0 }
   .count { color: var(--muted); font-size: .9rem; font-variant-numeric: tabular-nums }
 
+  #addSong { margin-top: .5rem }
   .search { position: relative }
   .search .ic { position: absolute; left: .9rem; top: 50%; translate: 0 -50%; color: var(--muted); width: 1.25rem; height: 1.25rem }
   .search input[type=search], label.name input { margin: 0 } /* beats Pico's input bottom margin, which pushed the icon off-centre */
@@ -269,8 +270,9 @@
     <form id="form" aria-label="Search songs">
       <div class="search">
         <svg class="ic"><use href="#i-search"/></svg>
-        <input id="q" type="search" enterkeyhint="search" placeholder="Search YouTube Music or paste a link" autocomplete="off" aria-label="Search songs">
+        <input id="q" type="search" enterkeyhint="search" placeholder="Search YouTube songs/videos or paste a link" autocomplete="off" aria-label="Search YouTube songs and videos or paste a link">
       </div>
+      <button id="addSong" class="btn primary" type="submit">Add to queue</button>
       <label class="name">Audio quality (for songs you add from now on)
         <select id="quality"><option value="low">Low (48 kbps, saves data)</option><option value="standard">Standard (128 kbps)</option><option value="high">High (256 kbps when available)</option></select>
       </label>
