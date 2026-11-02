@@ -25,7 +25,7 @@ The page polls this every 2 seconds.
 `speaker` is `null` until the host picks one. `position`/`duration` are `null` when nothing is playing. `errors` is newest first, at most 30.
 
 ### `GET /api/search?q=<text>`
-Searches YouTube Music songs, then regular YouTube videos through yt-dlp. Returns up to 16 (8 songs, then 8 video candidates, deduplicated by video ID) `{ "title", "artist", "dur", "vid", "url" }`. Video `artist` is the channel/uploader; unknown duration is `""`. Live video results are omitted. `502` if either search fails.
+Text queries search regular YouTube through yt-dlp, including non-music videos. Returns up to 16 video candidates, deduplicated by video ID, as `{ "title", "artist", "dur", "vid", "url" }`. `artist` is the channel/uploader; unknown duration is `""`. Live search results are omitted. A YouTube video URL instead returns one preview with title, channel, video ID and canonical URL using YouTube oEmbed; its duration is `""`. Watch, short, Shorts, embed, live, and YouTube Music video links are accepted, including supported scheme-less links. `400` for invalid/unsupported video URLs; `502` if search or metadata lookup fails.
 
 ### `GET /api/speakers` (host only)
 Scans the network for about 5 seconds. Returns `[ { "name", "ip" } ]`.
