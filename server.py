@@ -498,35 +498,49 @@ def search():
     q = request.args.get("q", "").strip()[:200]
     if not q:
         return jsonify([])
-    # YouTube Music's own search; one call per filter gives title, artist, duration.
-    # ponytail: private API, may change; these params blobs are fixed constants. Songs first, then plain videos.
-    out, seen = [], set()  # up to 8 songs + 8 videos
-    for params in ("EgWKAQIIAWoKEAkQBRAKEAMQBA==", "EgWKAQIQAWoKEAkQBRAKEAMQBA=="):  # Songs, Videos
-        body = {"context": {"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20240401.01.00", "hl": "en"}},
-                "query": q, "params": params}
-        req = urllib.request.Request("https://music.youtube.com/youtubei/v1/search?prettyPrint=false",
-                                     json.dumps(body).encode(),
-                                     {"content-type": "application/json", "origin": "https://music.youtube.com",
-                                      "User-Agent": "Mozilla/5.0"})
+    # Music songs first, then regular YouTube videos.
+    out, seen = [], set()
+    body = {"context": {"client": {"clientName": "WEB_REMIX", "clientVersion": "1.20240401.01.00", "hl": "en"}},
+            "query": q, "params": "EgWKAQIIAWoKEAkQBRAKEAMQBA=="}
+    req = urllib.request.Request("https://music.youtube.com/youtubei/v1/search?prettyPrint=false",
+                                 json.dumps(body).encode(),
+                                 {"content-type": "application/json", "origin": "https://music.youtube.com",
+                                  "User-Agent": "Mozilla/5.0"})
+    try:
+        data = json.load(urllib.request.urlopen(req, timeout=10))
+    except Exception as e:
+        log_err(f"search failed for '{q[:40]}': {e}")
+        return f"search failed: {e}", 502
+    for r in walk(data):
         try:
-            data = json.load(urllib.request.urlopen(req, timeout=10))
-        except Exception as e:
-            log_err(f"search failed for '{q[:40]}': {e}")
-            return f"search failed: {e}", 502
-        part = []
-        for r in walk(data):
-            try:
-                col = lambda i: [x["text"] for x in r["flexColumns"][i]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]]
-                sub = "".join(col(1)).split(" • ")  # Artist • Album • 3:34  (videos: Channel • 1M views • 3:34)
-                vid = r["playlistItemData"]["videoId"]
-                if vid in seen:
-                    continue
-                seen.add(vid)
-                part.append({"title": col(0)[0], "artist": sub[0], "dur": sub[-1], "vid": vid,
-                            "url": f"https://music.youtube.com/watch?v={vid}"})
-            except (KeyError, IndexError):
-                continue  # not a song/video row
-        out += part[:8]
+            col = lambda i: [x["text"] for x in r["flexColumns"][i]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]]
+            sub = "".join(col(1)).split(" • ")  # Artist • Album • 3:34
+            vid = r["playlistItemData"]["videoId"]
+            if vid in seen:
+                continue
+            seen.add(vid)
+            out.append({"title": col(0)[0], "artist": sub[0], "dur": sub[-1], "vid": vid,
+                        "url": f"https://music.youtube.com/watch?v={vid}"})
+            if len(out) == 8:
+                break
+        except (KeyError, IndexError):
+            continue  # not a song row
+    try:
+        with YoutubeDL({"extract_flat": True, "quiet": True, "socket_timeout": 10}) as y:
+            videos = y.extract_info(f"ytsearch8:{q}", download=False)
+        for video in (videos or {}).get("entries") or []:
+            if not video or not VID.fullmatch(video.get("id") or ""):
+                continue
+            vid = video["id"]
+            if vid in seen or video.get("is_live") or video.get("live_status") == "is_live":
+                continue
+            seen.add(vid)
+            out.append({"title": video["title"], "artist": video.get("channel") or video.get("uploader") or "",
+                        "dur": mmss(video.get("duration")) or "", "vid": vid,
+                        "url": f"https://www.youtube.com/watch?v={vid}"})
+    except Exception as e:
+        log_err(f"search failed for '{q[:40]}': {e}")
+        return f"search failed: {e}", 502
     return jsonify(out)
 
 

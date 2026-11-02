@@ -26,7 +26,7 @@ The **Error log** at the bottom of the page lists recent failures with timestamp
 
 | Symptom | Cause and fix |
 |---|---|
-| Search says "Search failed" | The YouTube Music web API changed or is unreachable. The Error log has the reason; this is the most likely thing to break over time. |
+| Search says "Search failed" | YouTube Music or regular YouTube search failed. The Error log has the reason; the web API or yt-dlp extractor may need an update after YouTube changes. |
 | No thumbnails | They load from YouTube's image server, so the phone needs internet access. A music-note placeholder is shown instead. |
 | Volume bar jumps back | The page ignores server volume for about 1.5 seconds after you change it; if it keeps reverting, someone else is changing it. |
 
