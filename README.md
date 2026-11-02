@@ -1,7 +1,7 @@
 # sonos-local-player
 
 A shared music queue for a Sonos speaker. One machine on your Wi-Fi runs a small
-web server; everyone else opens a web page, searches YouTube Music and adds songs.
+web server; everyone else opens a web page, searches YouTube Music and regular YouTube videos, and adds audio to the queue.
 No Sonos app, no Android phone, no cloud account.
 
 ```
@@ -28,8 +28,8 @@ Allow inbound TCP on the port in the host firewall: the speaker downloads each t
 
 ## Features
 
-- Debounced YouTube Music search (songs and videos) with thumbnail, artist and duration
-- Paste a YouTube link, or a Spotify **track** link (matched to the same song on YouTube; Spotify itself is DRM-protected)
+- Debounced search for YouTube Music songs and regular YouTube videos, with thumbnail, artist/channel and duration
+- Paste a YouTube link, or a Spotify **track** link, then press **Add to queue** or Enter (Spotify tracks are matched to the same song on YouTube; Spotify itself is DRM-protected)
 - Queue you can reorder by dragging the handle (or with the Next / up buttons), remove songs, and see who added each one
 - Autoplay: when the queue runs dry, a random song from the last song's YouTube Music radio is queued (toggle in the UI)
 - Lyrics for the current song from [LRCLIB](https://lrclib.net), highlighted line by line when they are time-synced
@@ -42,7 +42,7 @@ Allow inbound TCP on the port in the host firewall: the speaker downloads each t
 
 - No authentication: anyone on your Wi-Fi can queue, skip and change volume. Don't expose the port to the internet.
 - Only YouTube and Spotify links are accepted (so guests can't make the host fetch arbitrary URLs).
-- Search uses YouTube Music's private web API and can break when YouTube changes it.
+- Song search uses YouTube Music's private web API; regular video search uses yt-dlp. Either can break when YouTube changes.
 - Lyrics depend on LRCLIB having the song; matching is by artist, title and length, so rare songs and some remixes won't have any.
 - Spotify playlists and albums are not supported.
 - Downloading from YouTube may violate its terms of service; use it for music you're entitled to play, at your own risk.
